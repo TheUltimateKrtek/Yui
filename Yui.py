@@ -2446,6 +2446,7 @@ class Yui():
     
     def set_parent(self, parent: 'Yui', index:int):
         # TODO: Implement
+        pass
     
     # --- Callbacks ---
     def on_transform_changed(self) -> None:
