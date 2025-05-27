@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time
 from typing import Iterable, Iterator
 import numpy as np
 import pygame
@@ -1528,6 +1529,7 @@ class Graphics(pygame.surface.Surface):
         This allows for nested transformations.
         """
         self._transforms.append(self._transfroms[-1].copy())
+        return self._MatrixContext(self)
     
     def pop_matrix(self) -> None:
         """
@@ -1603,6 +1605,32 @@ class Graphics(pygame.surface.Surface):
             raise TypeError("sx and sy must be numbers.")
         self.last_transform = self.last_transform.scale(sx, sy)
     
+    class _MatrixContext:
+        def __init__(self, graphics:Graphics):
+            """
+            Context manager for applying transformations to the Graphics object.
+            
+            Args:
+                graphics (Graphics): The Graphics object to apply transformations to.
+            """
+            self.graphics = graphics
+        def __enter__(self):
+            """
+            Enters the context manager, saving the current transformation matrix.
+            """
+            self.graphics.push_matrix()
+            return self.graphics
+        def __exit__(self, exc_type, exc_value, traceback):
+            """
+            Exits the context manager, restoring the last transformation matrix.
+            
+            Args:
+                exc_type: The exception type, if any.
+                exc_value: The exception value, if any.
+                traceback: The traceback object, if any.
+            """
+            self.graphics.pop_matrix()
+    
     
     # Abstractions
     def _shape_outline(self, points:Iterable[Vector2D], color:Color=None, width:int=1) -> None:
@@ -1668,314 +1696,457 @@ class Graphics(pygame.surface.Surface):
         # Blit the final surface onto the main surface
         self.blit(final_surface, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
+    # TODO: Implement more context managers for transformations and drawing
+
+class Animation:
+    # Static class with nested classes like Ease, Formula, Keyframe, Envelope and Timeline.
+    @staticmethod
+    def animate(t, ease, formula):
+        """
+        Animates a value based on time, easing function, and formula.
+        Args:
+            t (float): The time value between 0 and 1.
+            ease (Ease): The easing function to apply.
+            formula (Formula): The mathematical formula to apply.
+        Returns:
+            float: The animated value based on the easing function and formula.
+        """
+        return ease.value(formula.value(ease.time(t)), t)
+    
+    class Ease:
+        def __init__(self):
+            """
+            Static class for easing functions.
+            """
+            pass
+        def time(self, t:float) -> float:
+            """
+            Argument for Formula.value().
+            
+            Args:
+                t (float): The time value between 0 and 1.
+            
+            Returns:
+                float: The eased value.
+            """
+            return t
+        def value(self, t:float, v:float) -> float:
+            """
+            Final part of the equation.
+            
+            Args:
+                t (float): The time value between 0 and 1.
+                v (float): The value to ease.
+            
+            Returns:
+                float: The eased value.
+            """
+            return v
+        
+        class In(super().Ease):
+            """
+            Easing function for ease-in.
+            """
+            def time(self, t:float) -> float:
+                return t
+            def value(self, t:float, v:float) -> float:
+                return v
+        class Out(super().Ease):
+            """
+            Easing function for ease-out.
+            """
+            def time(self, t:float) -> float:
+                return 1 - t
+            def value(self, t:float, v:float) -> float:
+                return 1 - v
+        class InOut(super().Ease):
+            """
+            Easing function for ease-in-out.
+            """
+            def time(self, t:float) -> float:
+                return 2 * t if t < 0.5 else 2 * (1 - t)
+            def value(self, t:float, v:float) -> float:
+                return v if t < 0.5 else 1 - v
+        class OutIn(super().Ease):
+            """
+            Easing function for ease-out-in.
+            """
+            def time(self, t:float) -> float:
+                return 1 - (2 * t if t < 0.5 else 2 * (1 - t))
+            def value(self, t:float, v:float) -> float:
+                return 1 - v if t < 0.5 else v
+    class Formula:
+        def __init__(self):
+            """
+            Static class for mathematical formulas.
+            """
+            pass
+        def value(self, t:float) -> float:
+            """
+            Applies a mathematical formula to the time value.
+            Args:
+                t (float): The time value between 0 and 1.
+            Returns:
+                float: The calculated value.
+            """
+            return t
+        
+        class Polynomial(super().Formula):
+            """
+            Polynomial formula for easing.
+            """
+            def __init__(self, degree:int=2):
+                """
+                Initializes the polynomial formula with a degree.
+                
+                Args:
+                    degree (int): The degree of the polynomial. Defaults to 2.
+                """
+                if not isinstance(degree, int) or degree < 1:
+                    raise ValueError("degree must be an integer greater than or equal to 1.")
+                self.degree = degree
+            def value(self, t:float) -> float:
+                """
+                Applies the polynomial formula to the time value.
+                Args:
+                    t (float): The time value between 0 and 1.
+                Returns:
+                    float: The calculated value based on the polynomial formula.
+                """
+                if not isinstance(t, (int, float)):
+                    raise TypeError("t must be a number.")
+                return t ** self.degree
+        class Exponential(super().Formula):
+            """
+            Exponential formula for easing.
+            """
+            def __init__(self, base:float=2.0):
+                """
+                Initializes the exponential formula with a base.
+                
+                Args:
+                    base (float): The base of the exponential function. Defaults to 2.0.
+                """
+                if not isinstance(base, (int, float)) or base <= 0:
+                    raise ValueError("base must be a positive number.")
+                self.base = base
+            def value(self, t:float) -> float:
+                """
+                Applies the exponential formula to the time value.
+                
+                Args:
+                    t (float): The time value between 0 and 1.
+                
+                Returns:
+                    float: The calculated value based on the exponential formula.
+                """
+                if not isinstance(t, (int, float)):
+                    raise TypeError("t must be a number.")
+                return self.base ** t
+        class Trigoniometric:
+            def __init__(self):
+                """
+                Static class for trigonometric formulas.
+                """
+                pass
+            def value(self, t:float) -> float:
+                """
+                Applies a trigonometric formula to the time value.
+                
+                Args:
+                    t (float): The time value between 0 and 1.
+                
+                Returns:
+                    float: The calculated value based on the trigonometric formula.
+                """
+                return np.sin(t * np.pi * 2)
+        class Circular:
+            def __init__(self):
+                """
+                Static class for circular formulas.
+                """
+                pass
+            def value(self, t:float) -> float:
+                """
+                Applies a circular formula to the time value.
+                
+                Args:
+                    t (float): The time value between 0 and 1.
+                
+                Returns:
+                    float: The calculated value based on the circular formula.
+                """
+                return np.sqrt(1 - (t - 1) ** 2)
+    class Keyframe:
+        def __init__(self, time:float, value:float, ease:Animation.Ease=None):
+            """
+            Initializes a keyframe with a time, value, and optional easing function.
+            
+            Args:
+                time (float): The time from the last keyframe.
+                value (float): The value of the keyframe.
+                ease (Animation.Ease, optional): The easing function to apply. Defaults to None.
+            """
+            if not isinstance(time, (int, float)):
+                raise TypeError("time must be a number.")
+            if not isinstance(value, (int, float)):
+                raise TypeError("value must be a number.")
+            self.time = time
+            self.value = value
+            self.ease = ease if ease is not None else Animation.Ease()
+    class Envelope:
+        def __init__(self, keyframes:list[Animation.Keyframe]=[], delay:float=0.0):
+            """
+            Initializes an envelope with a list of keyframes.
+            
+            Args:
+                keyframes (list[Animation.Keyframe]): A list of keyframes defining the envelope.
+            """
+            if not isinstance(keyframes, list) or not all(isinstance(kf, Animation.Keyframe) for kf in keyframes):
+                raise TypeError("keyframes must be a list of Animation.Keyframe instances.")
+            self.keyframes = keyframes
+            self.delay = delay
+        def add_keyframe(self, keyframe:Animation.Keyframe) -> None:
+            """
+            Adds a keyframe to the envelope.
+            Args:
+                keyframe (Animation.Keyframe): The keyframe to add.
+            Raises:
+                TypeError: If keyframe is not an instance of Animation.Keyframe.
+            """
+            if not isinstance(keyframe, Animation.Keyframe):
+                raise TypeError("keyframe must be an instance of Animation.Keyframe.")
+            self.keyframes.append(keyframe)
+        def remove_keyframe(self, keyframe:Animation.Keyframe) -> None:
+            """
+            Removes a keyframe from the envelope.
+            Args:
+                keyframe (Animation.Keyframe): The keyframe to remove.
+            Raises:
+                TypeError: If keyframe is not an instance of Animation.Keyframe.
+            """
+            if not isinstance(keyframe, Animation.Keyframe):
+                raise TypeError("keyframe must be an instance of Animation.Keyframe.")
+            self.keyframes.remove(keyframe)
+        def __len__(self) -> int:
+            """
+            Returns the number of keyframes in the envelope.
+            
+            Returns:
+                int: The number of keyframes.
+            """
+            return len(self.keyframes)
+        def __getitem__(self, index:int) -> Animation.Keyframe:
+            """
+            Gets a keyframe by index.
+            
+            Args:
+                index (int): The index of the keyframe to retrieve.
+            
+            Returns:
+                Animation.Keyframe: The keyframe at the specified index.
+            """
+            if not isinstance(index, int):
+                raise TypeError("index must be an integer.")
+            return self.keyframes[index]
+        def __iter__(self):
+            """
+            Returns an iterator over the keyframes in the envelope.
+            
+            Returns:
+                Iterator[Animation.Keyframe]: An iterator over the keyframes.
+            """
+            return iter(self.keyframes)
+        def duration(self) -> float:
+            """
+            Calculates the total duration of the envelope based on the keyframes.
+            
+            Returns:
+                float: The total duration of the envelope.
+            """
+            if not self.keyframes:
+                return 0.0
+            return self.keyframes[-1].time
+        def value_at(self, time:float) -> float:
+            """
+            Gets the value at a specific time based on the keyframes.
+            
+            Args:
+                time (float): The time to get the value for.
+            
+            Returns:
+                float: The value at the specified time.
+            """
+            if not isinstance(time, (int, float)):
+                raise TypeError("time must be a number.")
+            if not self.keyframes:
+                return 0.0
+            
+            # Find the two keyframes surrounding the time
+            for i in range(len(self.keyframes) - 1):
+                if self.keyframes[i].time <= time <= self.keyframes[i + 1].time:
+                    kf1 = self.keyframes[i]
+                    kf2 = self.keyframes[i + 1]
+                    t = (time - kf1.time) / (kf2.time - kf1.time)
+                    return Animation.Ease().value(t, kf1.value + (kf2.value - kf1.value) * t)
+            
+            # If time is after the last keyframe, return the last keyframe's value
+            if time >= self.keyframes[-1].time:
+                return self.keyframes[-1].value
+            # If time is before the first keyframe, return the first keyframe's value
+            return self.keyframes[0].value
+        def copy(self) -> 'Animation.Envelope':
+            """
+            Creates a copy of the envelope.
+            
+            Returns:
+                Animation.Envelope: A new envelope with the same keyframes and delay.
+            """
+            return Animation.Envelope(self.keyframes.copy(), self.delay)
+    class LiveValue:
+        def __init__(self, value:float|int=0.0):
+            """
+            Initializes a live value that can be animated.
+            
+            Args:
+                value (float|int, optional): The initial value. Defaults to 0.0.
+            """
+            if not isinstance(value, (int, float)):
+                raise TypeError("value must be a number.")
+            self.value = value
+            self.base_value = value
+            self.envelopes = []
+        
+        @property
+        def current_value(self) -> float:
+            """
+            Gets the current value of the live value, modified by any active envelopes.
+            
+            Returns:
+                float: The current value.
+            """
+            self.update()
+            return self.value
+        
+        def update(self) -> None:
+            """
+            Updates the live value based on the active envelopes.
+            This method should be called regularly to ensure the value is updated.
+            """
+            value = 0.0
+            for envelope in self.envelopes:
+                if time.time() - envelope.delay > envelope.duration():
+                    self.base_value += envelope.value_at(time.time())
+                else:
+                    value += envelope.value_at(time.time() - envelope.delay)
+            self.value = self.base_value + value
+        def animate_now(self, envelope:Animation.Envelope) -> None:
+            """
+            Immediately applies an envelope to the live value.
+            
+            Args:
+                envelope (Animation.Envelope): The envelope to apply.
+            """
+            if not isinstance(envelope, Animation.Envelope):
+                raise TypeError("envelope must be an instance of Animation.Envelope.")
+            envelope.delay = time.time()
+            self.envelopes.append(envelope.copy())
+            self.update()
+        def animate_after(self, envelope:Animation.Envelope, delay:float) -> None:
+            """
+            Applies an envelope to the live value after a specified delay.
+            
+            Args:
+                envelope (Animation.Envelope): The envelope to apply.
+                delay (float): The delay in seconds before applying the envelope.
+            """
+            if not isinstance(envelope, Animation.Envelope):
+                raise TypeError("envelope must be an instance of Animation.Envelope.")
+            if not isinstance(delay, (int, float)):
+                raise TypeError("delay must be a number.")
+            envelope.delay = time.time() + delay
+            self.envelopes.append(envelope.copy())
+        def animate_end(self, envelope:Animation.Envelope) -> None:
+            """
+            Ends the animation of an envelope.
+            
+            Args:
+                envelope (Animation.Envelope): The envelope to end.
+            """
+            if not isinstance(envelope, Animation.Envelope):
+                raise TypeError("envelope must be an instance of Animation.Envelope.")
+            # Calculate the time at which the all envelopes end
+            end_time = time.time()
+            for env in self.envelopes:
+                if env.duration() + env.delay > end_time:
+                    end_time = env.duration() + env.delay
+            envelope.delay = end_time
+            self.envelopes.append(envelope.copy())
+        def animate(self, envelope:Animation.Envelope) -> None:
+            """
+            Applies an envelope to the live value.
+            
+            Args:
+                envelope (Animation.Envelope): The envelope to apply.
+            """
+            if not isinstance(envelope, Animation.Envelope):
+                raise TypeError("envelope must be an instance of Animation.Envelope.")
+            self.envelopes.append(envelope.copy())
+            self.update()
+        
+        def set_immediate_value(self, value:float|int) -> None:
+            """
+            Sets the live value immediately without animation.
+            
+            Args:
+                value (float|int): The value to set.
+            """
+            if not isinstance(value, (int, float)):
+                raise TypeError("value must be a number.")
+            self.value = value
+            self.base_value = value
+        def set_ending_value(self, value:float|int) -> None:
+            """
+            Sets the live value to an ending value, clearing all envelopes.
+            
+            Args:
+                value (float|int): The ending value to set.
+            """
+            if not isinstance(value, (int, float)):
+                raise TypeError("value must be a number.")
+            # Calculate final value
+            final_value = self.get_ending_value()
+            self.base_value = final_value - self.value + value
+        def get_ending_value(self) -> float:
+            """
+            Gets the ending value of the live value, considering all envelopes.
+            
+            Returns:
+                float: The ending value.
+            """
+            final_value = self.base_value
+            for envelope in self.envelopes:
+                final_value += envelope.value_at(envelope.duration())
+            return final_value
 # TODO: Implement Shape drawing logic in Graphics
-class Shape(Iterable):
-    """
-    A base class for shapes that can be drawn on a Yui surface.
-    
-    This class provides methods for drawing shapes with various properties such as fill color, stroke color, and stroke width.
-    It is intended to be subclassed for specific shape implementations.
-    """
-    
-    def __init__(self) -> None:
-        """
-        Initializes the Shape with a reference to the Yui surface.
-        
-        Args:
-            yui (Yui): The Yui surface where the shape will be drawn.
-        """
-        self.points = []
-        self.children = []
-        self.transform = Matrix2D.identity()
-        self.fill_color = Color(0, 0, 0, 0)  # Default transparent fill
-        self.stroke_color = Color(0, 0, 0, 0)
-        self.stroke_width = 1
-        self.texture = None
-        self.gradient = None
-    
-    def vertex(self, x:float|Vector2D, y:float|None=None) -> None:
-        """
-        Adds a vertex to the shape.
-        
-        Args:
-            x (float | Vector2D): The x coordinate of the vertex or a Vector2D instance.
-            y (float | None): The y coordinate of the vertex. If None, x should be a Vector2D instance.
-        
-        Raises:
-            TypeError: If x is not a number or Vector2D, or if y is provided and not a number.
-        """
-        if isinstance(x, Vector2D):
-            self.points.append(self.transform @ x)
-        elif isinstance(x, (int, float)) and y is not None:
-            self.points.append(self.transform @ Vector2D(x, y))
-        else:
-            raise TypeError("x must be a number or Vector2D, and y must be a number if provided.")
-    
-    def __len__(self) -> int:
-        """
-        Returns the number of vertices in the shape.
-        
-        Returns:
-            int: The number of vertices in the shape.
-        """
-        return len(self.points)
-    
-    def __setitem__(self, index:int, value:Vector2D) -> None:
-        """
-        Sets the vertex at the specified index to the given Vector2D value.
-        
-        Args:
-            index (int): The index of the vertex to set.
-            value (Vector2D): The new value for the vertex.
-        
-        Raises:
-            IndexError: If the index is out of bounds.
-            TypeError: If value is not a Vector2D instance.
-        """
-        if not isinstance(value, Vector2D):
-            raise TypeError("value must be a Vector2D instance.")
-        if index < 0 or index >= len(self.points):
-            raise IndexError("Index out of bounds.")
-        self.points[index] = value
-    
-    def __getitem__(self, index:int) -> Vector2D:
-        """
-        Gets the vertex at the specified index.
-        
-        Args:
-            index (int): The index of the vertex to get.
-        
-        Returns:
-            Vector2D: The vertex at the specified index.
-        
-        Raises:
-            IndexError: If the index is out of bounds.
-        """
-        if index < 0 or index >= len(self.points):
-            raise IndexError("Index out of bounds.")
-        return self.points[index]
-    
-    def __iter__(self) -> Iterator[Vector2D]:
-        """
-        Returns an iterator over the vertices of the shape.
-        
-        Returns:
-            Iterator[Vector2D]: An iterator over the vertices of the shape.
-        """
-        return iter(self.points)
-    
-    # Transformation Methods
-    def translate(self, x:float, y:float) -> None:
-        """
-        Translates the shape by (x, y).
-        
-        Args:
-            x (float): The x translation amount.
-            y (float): The y translation amount.
-        
-        Raises:
-            TypeError: If x or y is not a number.
-        """
-        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
-            raise TypeError("x and y must be numbers.")
-        self.transform = self.transform.translate(x, y)
-    
-    def rotate(self, angle:float) -> None:
-        """
-        Rotates the shape by the specified angle in radians.
-        
-        Args:
-            angle (float): The angle in radians to rotate the shape.
-        
-        Raises:
-            TypeError: If the angle is not a number.
-        """
-        if not isinstance(angle, (int, float)):
-            raise TypeError("angle must be a number.")
-        self.transform = self.transform.rotate(angle)
-    
-    def scale(self, sx:float, sy:float) -> None:
-        """
-        Scales the shape by (sx, sy).
-        
-        Args:
-            sx (float): The x scale factor.
-            sy (float): The y scale factor.
-        
-        Raises:
-            TypeError: If sx or sy is not a number.
-        """
-        if not isinstance(sx, (int, float)) or not isinstance(sy, (int, float)):
-            raise TypeError("sx and sy must be numbers.")
-        self.transform = self.transform.scale(sx, sy)
-    
-    def apply_matrix(self, matrix:Matrix2D) -> None:
-        """
-        Applies a transformation matrix to the shape.
-        
-        Args:
-            matrix (Matrix2D): The transformation matrix to apply.
-        
-        Raises:
-            TypeError: If the matrix is not an instance of Matrix2D.
-        """
-        if not isinstance(matrix, Matrix2D):
-            raise TypeError("matrix must be an instance of Matrix2D.")
-        self.transform = self.transform @ matrix
-
-    # Drawing Methods
-    @property
-    def fill_color(self) -> Color:
-        """
-        Returns the current fill color of the shape.
-        
-        Returns:
-            Color: The current fill color.
-        """
-        return self._fill_color
-    @fill_color.setter
-    def fill_color(self, color:Color) -> None:
-        """
-        Sets the fill color for the shape.
-        
-        Args:
-            color (Color): The color to set as the fill color.
-        
-        Raises:
-            TypeError: If the color is not an instance of Color.
-        """
-        if not isinstance(color, Color):
-            raise TypeError("fill_color must be an instance of Color.")
-        self._fill_color = color
-    def no_fill(self) -> None:
-        """
-        Disables the fill color for the shape.
-        This means the shape will not be filled with any color when drawn.
-        """
-        self._fill_color = Color(0, 0, 0, 0)
-    
-    @property
-    def stroke_color(self) -> Color:
-        """
-        Returns the current stroke color of the shape.
-        
-        Returns:
-            Color: The current stroke color.
-        """
-        return self._stroke_color
-    @stroke_color.setter
-    def stroke_color(self, color:Color) -> None:
-        """
-        Sets the stroke color for the shape.
-        
-        Args:
-            color (Color): The color to set as the stroke color.
-        
-        Raises:
-            TypeError: If the color is not an instance of Color.
-        """
-        if not isinstance(color, Color):
-            raise TypeError("stroke_color must be an instance of Color.")
-        self._stroke_color = color
-    def no_stroke(self) -> None:
-        """
-        Disables the stroke color for the shape.
-        This means the shape will not have an outline when drawn.
-        """
-        self._stroke_color = Color(0, 0, 0, 0)
-        self._stroke_width = 0
-    
-    @property
-    def stroke_width(self) -> int:
-        """
-        Returns the current stroke width of the shape.
-        
-        Returns:
-            int: The current stroke width.
-        """
-        return self._stroke_width
-    @stroke_width.setter
-    def stroke_width(self, width:int) -> None:
-        """
-        Sets the stroke width for the shape.
-        
-        Args:
-            width (int): The width to set as the stroke width.
-        
-        Raises:
-            ValueError: If the width is less than 0.
-            TypeError: If the width is not an integer.
-        """
-        if not isinstance(width, int):
-            raise TypeError("stroke_width must be an integer.")
-        if width < 0:
-            raise ValueError("stroke_width must be greater than or equal to 0.")
-        self._stroke_width = width
-    
-    @property
-    def texture(self) -> pygame.Surface|None:
-        """
-        Returns the current texture of the shape.
-        
-        Returns:
-            pygame.Surface | None: The current texture, or None if no texture is set.
-        """
-        return self._texture
-    @texture.setter
-    def texture(self, texture:pygame.Surface|None) -> None:
-        """
-        Sets the texture for the shape.
-        
-        Args:
-            texture (pygame.Surface | None): The texture to set. If None, no texture will be applied.
-        
-        Raises:
-            TypeError: If the texture is not a pygame.Surface instance or None.
-        """
-        if texture is not None and not isinstance(texture, pygame.Surface):
-            raise TypeError("texture must be a pygame.Surface instance or None.")
-        self._texture = texture
-    def no_texture(self) -> None:
-        """
-        Disables the texture for the shape.
-        This means the shape will not be filled with any texture when drawn.
-        """
-        self._texture = None
-    
-    @property
-    def gradient(self) -> list[Color]|None:
-        """
-        Returns the current gradient of the shape.
-        
-        Returns:
-            Gradient | None: The current gradient, or None if no gradient is set.
-        """
-        return self._gradient
-    @gradient.setter
-    def gradient(self, gradient:list[Color]|None) -> None:
-        """
-        Sets the gradient for the shape.
-        
-        Args:
-            gradient (Gradient | None): The gradient to set. If None, no gradient will be applied.
-        
-        Raises:
-            TypeError: If the gradient is not an instance of Gradient or None.
-        """
-        if gradient is not None and not isinstance(gradient, Gradient):
-            raise TypeError("gradient must be an instance of Gradient or None.")
-        self._gradient = gradient
-    def no_gradient(self) -> None:
-        """
-        Disables the gradient for the shape.
-        This means the shape will not be filled with any gradient when drawn.
-        """
-        self._gradient = None
-
 
 # YuiElement
 class Yui():
-    pass
+    def __init__(self, parent:Yui):
+        self._x, self._y, self._r, self._sx, self._sy, self._ax, self._ay = Animation.LiveValue(0), Animation.LiveValue(0), Animation.LiveValue(0), Animation.LiveValue(1), Animation.LiveValue(1), Animation.LiveValue(0.5), Animation.LiveValue(0.5)
+        self._global_transform = Matrix2D.identity()
+        self._local_transform = Matrix2D.identity()
+        self._inverse_global_transform = Matrix2D.identity()
+        self._inverse_local_transform = Matrix2D.identity()
+        self._needs_local_matrix_update = True
+        self._needs_global_matrix_update = True
+        
+        self._parent = parent
+        self._children = []
+        self._visible = True
+        self._enabled = True
+        
+        
 
 class YuiRoot(Yui):
     pass
