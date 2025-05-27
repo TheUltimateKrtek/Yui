@@ -2142,6 +2142,18 @@ class Yui():
         self._ax = 0
         self._ay = 0
         
+        # --- Matrix Cache & Flags ---
+        self._local_matrix = Matrix2D.identity()
+        self._world_matrix = Matrix2D.identity()
+        self._local_inverted_matrix = Matrix2D.identity()
+        self._world_inverted_matrix = Matrix2D.identity()
+        self._needs_local_matrix_update = True
+        self._needs_world_matrix_update = True
+
+        # --- Graphics ---
+        self._graphics = None
+        self._needs_graphics_rebuild = True
+        
         # --- Hierarchy ---
         self._parent = None
         self._children = []
@@ -2150,14 +2162,6 @@ class Yui():
         self._destroyed = False
         self._visible = True
         self._enabled = True
-        
-        # --- Matrix Cache & Flags ---
-        self._local_matrix = Matrix2D.identity()
-        self._world_matrix = Matrix2D.identity()
-        self._local_inverted_matrix = Matrix2D.identity()
-        self._world_inverted_matrix = Matrix2D.identity()
-        self._needs_local_matrix_update = True
-        self._needs_world_matrix_update = True
     
     # --- Transform ---
     @property
@@ -2351,6 +2355,30 @@ class Yui():
             self.on_matrix_updated(last_local_matrix, last_world_matrix, last_inverted_local_matrix, last_inverted_world_matrix)
         return self
 
+    # --- Graphics ---
+    def draw(self, graphics:Graphics) -> None:
+        """
+        Draws this Yui element using the provided Graphics object.
+        
+        Args:
+            graphics (Graphics): The Graphics object to draw with.
+        """
+        if self._graphics is None and self._needs_graphics_rebuild:
+            self._graphics = graphics
+            self._needs_graphics_rebuild = False
+            self._rebuild_graphics()
+        self._update_matrices()
+        with self._graphics.push_matrix():
+            self._graphics.apply_matrix(self.world_matrix)
+            self.on_draw(self._graphics)
+    def _rebuild_graphics(self) -> None:
+        """
+        Rebuilds the graphics representation of this Yui element.
+        This should be overridden by subclasses to define how the element should be drawn.
+        """
+        pass
+    # TODO
+
     # --- Hierarchy ---
     @property
     def parent(self) -> 'Yui':
@@ -2391,15 +2419,6 @@ class Yui():
             bool: True if this is the root element, False otherwise.
         """
         return isinstance(self, YuiRoot)
-    @property
-    def is_destroyed(self) -> bool:
-        """
-        Checks if this Yui element has been destroyed.
-        
-        Returns:
-            bool: True if the element is destroyed, False otherwise.
-        """
-        return self._destroyed
     @property
     def level(self) -> int:
         """
@@ -2444,9 +2463,65 @@ class Yui():
     def is_descendant_of(self, other: 'Yui') -> bool:
         return other in self.ancestors
     
-    def set_parent(self, parent: 'Yui', index:int):
-        # TODO: Implement
+
+    def set_parent(self, parent: 'Yui', index:int=None):
+        if self._destroyed or isinstance(self, YuiRoot):
+            return
+        
+        if parent is None: # Can't assign a null parent
+            if self.parent:
+                raise RuntimeError("Tried to assign a null parent on Yui init.")
+            else:
+                raise RuntimeError("Tried to assign a null parent on Yui parent change.")
+        else:
+            if not self.parent: # Initializing
+                index = max(0, min(parent.child_count, index))
+                if not parent.can_child_be_added(self, index) or not self.can_parent_be_set(parent): # Can't be initialized with this parent, would default to None
+                    raise RuntimeError("Can't assign this parent in Yui init.")
+                self.parent = parent
+                self.parent._children.insert(index, self)
+                self.on_parent_set(None)
+                self.parent.on_child_added(self, index)
+            elif self.parent == parent:
+                old_index = self.parent._children.index(self)
+                new_index = max(0, min(self.parent.child_count - 1, index))
+                if not self.parent.can_child_be_moved(self, old_index, new_index): # No change if not allowed to move
+                    return
+                self.parent._children.remove(self)
+                self.parent._children.insert(new_index, self)
+                self.parent.on_child_moved(self, old_index, new_index)
+            else: # Already initialized
+                old_index = self.parent._children.index(self)
+                new_index = max(0, min(parent.child_count, index))
+                old_parent = self.parent
+                if self.can_parent_be_set(parent) and self.can_parent_be_removed(self.parent) and self.parent.can_child_be_removed(self, old_index) and parent.can_child_be_added(self, new_index):
+                    self.parent._children.remove(self)
+                    self.parent = parent
+                    self.parent._children.insert(index, self)
+                    self.on_parent_removed(old_parent)
+                    old_parent.on_child_removed(self, old_index)
+                    self.on_parent_set(self.parent)
+                    self.parent.on_child_added(self, new_index)
     
+    # --- Flags ---
+    @property
+    def is_destroyed(self) -> bool:
+        """
+        Checks if this Yui element has been destroyed.
+        
+        Returns:
+            bool: True if the element is destroyed, False otherwise.
+        """
+        return self._destroyed
+    def destroy(self):
+        for child in self.children:
+            child.destroy()
+        self.on_destroyed()
+        if self.parent is not None:
+            self.parent.on_child_destroyed(self, self.parent._children.index(self))
+            self.parent._children.remove(self)
+        self._parent = None
+
     # --- Callbacks ---
     def on_transform_changed(self) -> None:
         """
@@ -2460,7 +2535,10 @@ class Yui():
         This can be overridden by subclasses to perform custom actions.
         """
         pass
-    
+    def on_destroyed(self):
+        pass
+    def on_child_destroyed(self):
+        pass
     def can_child_be_added(self, child:'Yui', index:int) -> bool:
         """
         Checks if the child can be added.
@@ -2572,6 +2650,8 @@ class Yui():
             parent (Yui): The parent to be removed.
         """
         pass
+
+    
     
 class YuiRoot(Yui):
     def __init__(self):
