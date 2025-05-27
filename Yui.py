@@ -1,0 +1,1999 @@
+from __future__ import annotations
+from typing import Iterable, Iterator
+import numpy as np
+import pygame
+
+# ---------------------
+# Utils
+# ---------------------
+
+class Matrix2D(np.ndarray):
+    """,
+    A 3x3 transformation matrix for 2D graphics.
+    This class represents a 3x3 matrix used for transformations in 2D space.
+    It supports operations like translation, rotation, scaling, and point transformation.
+    It is a subclass of numpy.ndarray, allowing for matrix operations.
+    
+    Methods:
+        - __new__: Creates a new 3x3 transformation matrix.
+        - transform_point: Applies the transformation to a 2D point (x, y).
+        - identity: Returns the identity matrix.
+        - translation: Returns a translation matrix.
+        - rotation: Returns a rotation matrix given an angle in radians.
+        - scaling: Returns a scaling matrix.
+        - decompose: Decomposes the matrix into translation, rotation, and scale.
+        - translate: Returns a new matrix with translation applied after this one.
+        - rotate: Returns a new matrix with rotation applied after this one.
+        - scale: Returns a new matrix with scaling applied after this one.
+        - invert: Returns the inverse of the transformation matrix.
+    """
+    
+    def __new__(cls, input_array=None) -> 'Matrix2D':
+        """
+        Creates a new 3x3 transformation matrix.
+        The matrix is initialized to the identity matrix if no input_array is provided.
+        The input_array should be a 3x3 array-like structure (list, tuple, or numpy array).
+        If the input_array is not 3x3, a ValueError is raised.
+        The matrix is stored as a numpy array with float type.
+        The class is a subclass of numpy.ndarray, allowing for matrix operations.
+
+        Args:
+            input_array (np.ndarray, optional): A 3x3 array-like structure to initialize the matrix. If None, initializes to the identity matrix.
+
+        Raises:
+            ValueError: If the input_array is not a 3x3 array.
+
+        Returns:
+            Matrix2D: An instance of Matrix2D initialized with the provided input_array or the identity matrix.
+        """
+        if input_array is None:
+            input_array = np.identity(3, dtype=float)
+        obj = np.asarray(input_array, dtype=float).view(cls)
+        if obj.shape != (3, 3):
+            raise ValueError("Matrix2D must be a 3x3 array.")
+        return obj
+
+    def __array_finalize__(self, obj):
+        if obj is None: return
+        # No additional attributes for now
+
+    @classmethod
+    def identity(cls):
+        """
+        Returns the identity matrix for 2D transformations.
+        """
+        return cls(np.identity(3))
+
+    @classmethod
+    def translation(cls, tx:float, ty: float) -> 'Matrix2D':
+        """
+        Returns a translation matrix that translates points by (tx, ty).
+
+        Args:
+            tx (float): x translation
+            ty (float): y translation
+
+        Returns:
+            Matrix2D: A translation matrix that translates points by (tx, ty).
+        """
+        return cls([
+            [1, 0, tx],
+            [0, 1, ty],
+            [0, 0, 1]
+        ])
+
+    @classmethod
+    def rotation(cls, theta_rad: float) -> 'Matrix2D':
+        """
+        Returns a rotation matrix for a given angle in radians.
+
+        Args:
+            theta_rad (float): Angle in radians to rotate points.
+
+        Returns:
+            Matrix2D: A rotation matrix that rotates points by theta_rad radians.
+        """
+        c, s = np.cos(theta_rad), np.sin(theta_rad)
+        return cls([
+            [c, -s, 0],
+            [s,  c, 0],
+            [0,  0, 1]
+        ])
+
+    @classmethod
+    def scaling(cls, sx:float, sy:float) -> 'Matrix2D':
+        """
+        Returns a scaling matrix that scales points by (sx, sy).
+
+        Args:
+            sx (float): x scaling factor
+            sy (float): x scaling factor
+
+        Returns:
+            Matrix2D: A scaling matrix that scales points by (sx, sy).
+        """
+        return cls([
+            [sx, 0,  0],
+            [0,  sy, 0],
+            [0,  0,  1]
+        ])
+
+    def __repr__(self):
+        return f"Matrix2D(\n{super().__repr__()}\n)"
+    
+    def decompose(self) -> tuple:
+        """
+        Decomposes the matrix into translation, rotation, and scale components.
+
+        Returns:
+            tuple: A tuple containing:
+                - translation (tx, ty): The translation components.
+                - theta (float): The rotation angle in radians.
+                - scale (sx, sy): The scaling factors in x and y directions.
+        """
+        a, c, tx = self[0]
+        b, d, ty = self[1]
+
+        # Extract translation directly
+        translation = (tx, ty)
+
+        # Compute scale
+        sx = np.hypot(a, b)
+        sy = np.hypot(c, d)
+
+        # Normalize to remove scale from rotation matrix
+        if sx != 0: a_n, b_n = a / sx, b / sx
+        else:       a_n, b_n = a, b
+        if sy != 0: c_n, d_n = c / sy, d / sy
+        else:       c_n, d_n = c, d
+
+        # Compute rotation from normalized matrix (assumes uniform scaling + no skew)
+        theta = np.arctan2(b_n, a_n)
+
+        return translation, theta, (sx, sy)
+    
+    def translate(self, tx:float, ty:float) -> 'Matrix2D':
+        """
+        Returns a new matrix with translation applied *after* this one.
+
+        Args:
+            tx (float): x translation
+            ty (float): y translation
+
+        Returns:
+            Matrix2D: A new transformation matrix with translation applied after this one.
+        """
+        return Matrix2D.translation(tx, ty) @ self
+
+    def rotate(self, theta_rad:float) -> 'Matrix2D':
+        """
+        Returns a new matrix with rotation applied *after* this one.
+
+        Args:
+            theta_rad (float): Angle in radians to rotate points.
+
+        Returns:
+            Matrix2D: A new transformation matrix with rotation applied after this one.
+        """
+        return Matrix2D.rotation(theta_rad) @ self
+
+    def scale(self, sx:float, sy:float) -> 'Matrix2D':
+        """
+        Returns a new matrix with scaling applied *after* this one.
+
+        Args:
+            sx (float): x scaling factor
+            sy (float): y scaling factor
+
+        Returns:
+            Matrix2D: A new transformation matrix with scaling applied after this one.
+        """
+        return Matrix2D.scaling(sx, sy) @ self
+
+    def invert(self) -> 'Matrix2D':
+        """
+        Returns the inverse of the transformation matrix.
+
+        Raises:
+            ValueError: If the matrix is not invertible.
+
+        Returns:
+            Matrix2D: The inverse of the transformation matrix.
+        """
+        try:
+            inv = np.linalg.inv(self)
+            return Matrix2D(inv)
+        except np.linalg.LinAlgError:
+            raise ValueError("Matrix is not invertible.")
+
+class Vector2D(np.ndarray):
+    """
+    A 2D vector represented as a 3x1 column vector.
+    This class represents a 2D vector in homogeneous coordinates, allowing for
+    transformations using a 3x3 Matrix2D. It supports basic vector operations
+    such as addition, subtraction, scaling, and transformation by a Matrix2D.
+    It is a subclass of numpy.ndarray, allowing for array-like operations.
+    
+    Attributes:
+        x (float): The x component of the vector.
+        y (float): The y component of the vector.
+    Methods:
+        - __new__: Creates a new Vector2D instance.
+        - transform: Applies a Matrix2D transformation and returns a new Vector2D.
+        - magnitude: Returns the distance from another vector or the origin.
+        - heading: Returns the angle (in radians) from the origin or another vector.
+        - __add__, __sub__, __mul__, __truediv__, __neg__: Basic vector operations.
+        - swizzle: Returns a new Vector2D based on a pattern string.
+    """
+    def __new__(cls, x=0.0, y=0.0) -> 'Vector2D':
+        data = np.array([[x], [y], [1.0]], dtype=float)
+        obj = np.asarray(data).view(cls)
+        return obj
+
+    def __array_finalize__(self, obj) -> None:
+        if obj is None: return
+
+    @property
+    def x(self) -> float:
+        """The x component of the vector."""
+        return self[0, 0]
+
+    @x.setter
+    def x(self, value) -> None:
+        """Sets the x component of the vector."""
+        self[0, 0] = value
+
+    @property
+    def y(self) -> float:
+        """The y component of the vector."""
+        return self[1, 0]
+
+    @y.setter
+    def y(self, value) -> None:
+        """Sets the y component of the vector."""
+        self[1, 0] = value
+
+    def transform(self, matrix: Matrix2D) -> 'Vector2D':
+        """
+        Applies a Matrix2D transformation to this vector and returns a new Vector2D.
+
+        Args:
+            matrix (Matrix2D): The transformation matrix to apply.
+
+        Returns:
+            Vector2D: A new Vector2D that is the result of applying the transformation.
+        """
+        result = matrix @ self
+        return Vector2D(result[0, 0], result[1, 0])
+
+    def magnitude(self, origin:'Vector2D'=None) -> float:
+        """
+        Returns the distance from this vector to another vector or the origin.
+
+        Args:
+            origin (Vector2D, optional): Another vector to measure distance from. If None, measures from the origin (0, 0).
+
+        Returns:
+            float: The distance from this vector to the origin or another vector.
+        """
+        dx, dy = self.x, self.y
+        if origin is not None:
+            dx -= origin.x
+            dy -= origin.y
+        return np.hypot(dx, dy)
+
+    def heading(self, origin:'Vector2D'=None) -> float:
+        """
+        Returns the angle (in radians) from this vector to another vector or the origin.
+
+        Args:
+            origin (Vector2D, optional): Another vector to measure angle from. If None, measures from the origin (0, 0).
+
+        Returns:
+            float: The angle in radians from this vector to the origin or another vector.
+        """
+        dx, dy = self.x, self.y
+        if origin is not None:
+            dx -= origin.x
+            dy -= origin.y
+        return np.arctan2(dy, dx)
+
+    def __add__(self, other:'Vector2D') -> 'Vector2D':
+        """
+        Adds another Vector2D to this vector and returns a new Vector2D.
+
+        Args:
+            other (Vector2D): Another vector to add.
+
+        Returns:
+            Vector2D: A new Vector2D that is the sum of this vector and the other vector.
+        """
+        return Vector2D(self.x + other.x, self.y + other.y)
+
+    def __sub__(self, other:'Vector2D') -> 'Vector2D':
+        """
+        Subtracts another Vector2D from this vector and returns a new Vector2D.
+
+        Args:
+            other (Vector2D): Another vector to subtract.
+
+        Returns:
+            Vector2D: A new Vector2D that is the difference of this vector and the other vector.
+        """
+        return Vector2D(self.x - other.x, self.y - other.y)
+
+    def __mul__(self, scalar:'Vector2D'|float) -> 'Vector2D':
+        """
+        Multiplies this vector by a scalar or another Vector2D and returns a new Vector2D.
+
+        Args:
+            scalar (Vector2D | float): A scalar value or another Vector2D to multiply with.
+
+        Returns:
+            Vector2D: A new Vector2D that is the product of this vector and the scalar or vector.
+        """
+        return Vector2D(self.x * scalar, self.y * scalar)
+
+    def __rmul__(self, scalar:'Vector2D'|float) -> 'Vector2D':
+        """
+        Allows scalar multiplication with Vector2D.
+
+        Args:
+            scalar (Vector2D | float): A scalar value or another Vector2D to multiply with.
+
+        Returns:
+            Vector2D: A new Vector2D that is the product of the scalar and this vector.
+        """
+        return self.__mul__(scalar)
+
+    def __truediv__(self, scalar:'Vector2D'|float) -> 'Vector2D':
+        """
+        Divides this vector by a scalar and returns a new Vector2D.
+
+        Args:
+            scalar (Vector2D | float): A scalar value to divide by.
+
+        Returns:
+            Vector2D: A new Vector2D that is the result of dividing this vector by the scalar.
+        """
+        return Vector2D(self.x / scalar, self.y / scalar)
+
+    def __neg__(self) -> 'Vector2D':
+        """
+        Negates this vector and returns a new Vector2D.
+
+        Returns:
+            Vector2D: A new Vector2D that is the negation of this vector.
+        """
+        return Vector2D(-self.x, -self.y)
+
+    def __repr__(self) -> str:
+        """
+        Returns a string representation of the Vector2D.
+
+        Returns:
+            str: A string representation of the Vector2D in the format "Vector2D(x=..., y=...)".
+        """
+        return f"Vector2D(x={self.x}, y={self.y})"
+        
+    def __rmatmul__(self, matrix:Matrix2D) -> 'Vector2D':
+        """
+        Allows matrix multiplication with a Matrix2D on the left side.
+
+        Args:
+            matrix (Matrix2D): The transformation matrix to apply.
+
+        Returns:
+            Vector2D: A new Vector2D that is the result of applying the transformation matrix to this vector.
+            
+        Raises:
+            NotImplemented: If the left operand is not a Matrix2D.
+        """
+        if isinstance(matrix, Matrix2D):
+            result = matrix @ self
+            return Vector2D(result[0, 0], result[1, 0])
+        return NotImplemented
+    
+    def swizzle(self, pattern:str) -> 'Vector2D':
+        """
+        Returns a new Vector2D based on a swizzle pattern string.
+        The pattern can contain:
+            - 'x' for x component
+            - 'y' for y component
+            - '0' for zero
+            - '1' for one
+            - 'n1' for negative one
+            - 'nx' for negative x component
+            - 'ny' for negative y component
+        The pattern must be exactly 2 characters long, and each character must be one of the above tokens.
+        
+        Args:
+            pattern (str): A 2-character string representing the swizzle pattern.
+
+        Raises:
+            ValueError: If the pattern is not exactly 2 characters long or contains invalid tokens.
+
+        Returns:
+            Vector2D: A new Vector2D created based on the swizzle pattern.
+        """
+        if len(pattern) != 2:
+            raise ValueError("Swizzle pattern must be length 2.")
+
+        def get_val(token):
+            if token == 'x':
+                return self.x
+            elif token == 'y':
+                return self.y
+            elif token == '0':
+                return 0.0
+            elif token == '1':
+                return 1.0
+            elif token == 'n1':
+                return -1.0
+            elif token == 'nx':
+                return -self.x
+            elif token == 'ny':
+                return -self.y
+            else:
+                raise ValueError(f"Invalid swizzle token: {token}")
+
+        # We need to parse tokens: either 1 or 2 chars, so:
+        # 'n1', 'nx', 'ny' are 2-char tokens
+        # 'x', 'y', '0', '1' are 1-char tokens
+
+        # Parse the pattern into tokens accordingly:
+        tokens = []
+        i = 0
+        while i < len(pattern):
+            # Check for 2-char tokens starting with 'n'
+            if pattern[i] == 'n' and i + 1 < len(pattern):
+                tokens.append(pattern[i:i+2])
+                i += 2
+            else:
+                tokens.append(pattern[i])
+                i += 1
+
+        if len(tokens) != 2:
+            raise ValueError("Swizzle pattern must resolve to exactly 2 tokens.")
+
+        x_val = get_val(tokens[0])
+        y_val = get_val(tokens[1])
+        return Vector2D(x_val, y_val)
+
+    @classmethod
+    def random(cls, low:float=0.0, high:float=1.0) -> 'Vector2D':
+        """
+        Returns a new Vector2D with random x and y components within the specified range.
+
+        Args:
+            low (float): The lower bound for the random values (inclusive).
+            high (float): The upper bound for the random values (exclusive).
+
+        Returns:
+            Vector2D: A new Vector2D with random x and y components.
+        """
+        return cls(np.random.uniform(low, high), np.random.uniform(low, high))
+    
+    @classmethod
+    def random_unit(cls) -> 'Vector2D':
+        """
+        Returns a new Vector2D with random x and y components that form a unit vector.
+
+        Returns:
+            Vector2D: A new Vector2D with random direction but unit length.
+        """
+        angle = np.random.uniform(0, 2 * np.pi)
+        return cls(np.cos(angle), np.sin(angle))
+    
+    @classmethod
+    def polar(cls, radius:float, angle_rad:float) -> 'Vector2D':
+        """
+        Returns a new Vector2D from polar coordinates.
+
+        Args:
+            radius (float): The distance from the origin.
+            angle_rad (float): The angle in radians.
+
+        Returns:
+            Vector2D: A new Vector2D representing the point in Cartesian coordinates.
+        """
+        return cls(radius * np.cos(angle_rad), radius * np.sin(angle_rad))
+
+class Color(pygame.Color):
+    def __new__(cls, r=0, g=0, b=0, a=255):
+        """
+        Creates a new Color instance with the specified RGB(A) values.
+        
+        Args:
+            r (int): Red component (0-255).
+            g (int): Green component (0-255).
+            b (int): Blue component (0-255).
+            a (int, optional): Alpha component (0-255). Defaults to 255 (opaque).
+        
+        Returns:
+            Color: A new Color instance.
+        """
+        return super().__new__(cls, r, g, b, a)
+    
+    def __repr__(self):
+        """
+        Returns a string representation of the Color instance.
+        
+        Returns:
+            str: A string representation of the Color in the format "Color(r, g, b, a)".
+        """
+        return f"Color({self.r}, {self.g}, {self.b}, {self.a})"
+    
+    def __str__(self):
+        return super().__str__()
+    
+    def to_tuple(self) -> tuple:
+        """
+        Returns the color as a tuple (r, g, b, a).
+        
+        Returns:
+            tuple: A tuple containing the RGBA components of the color.
+        """
+        return (self.r, self.g, self.b, self.a)
+    
+    def to_hex(self) -> str:
+        """
+        Returns the color as a hexadecimal string.
+        
+        Returns:
+            str: A hexadecimal string representation of the color, e.g., "#RRGGBBAA".
+        """
+        return f"#{self.r:02X}{self.g:02X}{self.b:02X}{self.a:02X}"
+    
+    @classmethod
+    def from_hex(cls, hex_str: str) -> 'Color':
+        """
+        Creates a Color instance from a hexadecimal string.
+        
+        Args:
+            hex_str (str): A hexadecimal string in the format "#RRGGBB" or "#RRGGBBAA".
+        
+        Returns:
+            Color: A new Color instance created from the hexadecimal string.
+        
+        Raises:
+            ValueError: If the hex_str is not in a valid format.
+        """
+        if hex_str.startswith('#'):
+            hex_str = hex_str[1:]
+        if len(hex_str) == 6:
+            return cls(int(hex_str[0:2], 16), int(hex_str[2:4], 16), int(hex_str[4:6], 16))
+        elif len(hex_str) == 8:
+            return cls(int(hex_str[0:2], 16), int(hex_str[2:4], 16), int(hex_str[4:6], 16), int(hex_str[6:8], 16))
+        else:
+            raise ValueError("Hex string must be in format '#RRGGBB' or '#RRGGBBAA'.")
+
+# ---------------------
+# Graphics
+# ---------------------
+
+# Global flag to determine if OpenGL should be used
+_use_gl = False  # Default to not using OpenGL
+def use_gl(use:bool|None=None) -> None|bool:
+    """
+    Sets or gets the OpenGL usage flag for the graphics module.
+    
+    Args:
+        use (bool, optional): If provided, sets the OpenGL usage flag. If None, returns the current flag.
+    
+    Returns:
+        bool: The current OpenGL usage flag if no argument is provided.
+    """
+    global _use_gl
+    if use is not None:
+        _use_gl = use
+    return _use_gl
+
+# Also allows pixel access like a numpy array
+class Graphics(pygame.surface.Surface):
+    """
+    A graphics surface that can be used for drawing shapes, images, and text.
+    This class is a subclass of pygame.Surface and provides additional methods
+    for drawing common shapes and handling transformations.
+    
+    Variables:
+        width (int): The width of the surface.
+        height (int): The height of the surface.
+        
+    """
+    
+    MODES = ["corner", "corners", "center", "radius"]
+    
+    def __new__(cls, width:int, height:int) -> 'Graphics':
+        """
+        Creates a new Graphics surface with the specified width and height.
+        
+        Args:
+            width (int): The width of the surface.
+            height (int): The height of the surface.
+            flags (int, optional): Pygame surface flags. Defaults to 0.
+            depth (int, optional): The bit depth of the surface. Defaults to 0.
+        
+        Returns:
+            Graphics: A new Graphics instance.
+        """
+        
+        if _use_gl:
+            # If using OpenGL, create a surface with OpenGL flags
+            flags = pygame.OPENGL | pygame.DOUBLEBUF
+        else:
+            # Create a regular pygame surface
+            flags = 0
+        surface = pygame.display.set_mode((width, height), flags=flags, depth=0)
+        obj = surface.view(cls)
+        
+        # Add additional attributes
+        obj._transfroms = [Matrix2D.identity()]
+        
+        obj._fill_color = Color(0, 0, 0, 255)  # Default fill color
+        obj._stroke_color = Color(255, 255, 255, 255)
+        obj._stroke_width = 1  # Default stroke width
+        obj._texture = None  # Default texture is None, can be a Graphics object
+        obj._gradient = None  # Default gradient is None, can be a tuple of two colors
+        
+        obj._rect_mode = 'corner'  # Default rectangle mode
+        obj._ellipse_mode = 'center'  # Default ellipse mode
+        obj._image_mode = 'corner'  # Default image mode
+        
+        obj._text_align_x = 0  # Horizontal text alignment (0: left, 1: right)
+        obj._text_align_y = 0  # Vertical text alignment (0: top, 1: bottom)
+        obj._text_font = pygame.font.Font(None, 36)  # Default font
+        obj._text_size = 12  # Default text size
+        obj._text_leading = 0  # Default text leading (line spacing)
+        
+        obj._curve_detail = 100  # Default curve detail for bezier curves
+        
+        return obj
+    
+    def __array_finalize__(self, obj) -> None:
+        if obj is None: return
+        # No additional attributes for now
+    
+    def __repr__(self) -> str:
+        """
+        Returns a string representation of the Graphics surface.
+        
+        Returns:
+            str: A string representation of the Graphics surface in the format "Graphics(width, height)".
+        """
+        return f"Graphics({self.get_width()}, {self.get_height()})"
+    
+    
+    # Properties
+    @property
+    def width(self) -> int:
+        """
+        Returns the width of the Graphics surface.
+        
+        Returns:
+            int: The width of the surface.
+        """
+        return self.get_width()
+    
+    @property
+    def height(self) -> int:
+        """
+        Returns the height of the Graphics surface.
+        
+        Returns:
+            int: The height of the surface.
+        """
+        return self.get_height()
+    
+    @property
+    def last_transform(self) -> Matrix2D:
+        """
+        Returns the last transformation matrix applied to the Graphics surface.
+        
+        Returns:
+            Matrix2D: The last transformation matrix.
+        """
+        return self._transfroms[-1]
+    
+    
+    @staticmethod
+    def _coordinates(mode:str, x1:float, y1:float, x2:float, y2:float) -> tuple:
+        """
+        Converts coordinates based on the specified mode.
+        The modes can be:
+            - 'corner': (x1, y1) is the top-left corner, (x2, y2) is the bottom-right corner
+            - 'corners': (x1, y1) is the top-left corner, (x2, y2) is the bottom-right corner
+            - 'center': (x1, y1) is the center, (x2, y2) is the size
+            - 'radius': (x1, y1) is the center, (x2, y2) is the radius
+
+        Args:
+            mode (str): The mode for coordinate conversion. Can be 'corner', 'corners', 'center', or 'radius'.
+            x1 (float)
+            y1 (float)
+            x2 (float)
+            y2 (float)
+
+        Raises:
+            ValueError: If the mode is not one of the expected values.
+
+        Returns:
+            tuple: A tuple representing the coordinates in the format (x, y, width, height) based on the mode.
+        """
+        if mode == 'corner':
+            # (x1, y1) is the top-left corner, (x2, y2) is the bottom-right corner
+            return (x1, y1, x2, y2)
+        elif mode == 'corners':
+            # (x1, y1) is the top-left corner, (x2, y2) is the bottom-right corner
+            return (x1, y1, x2 - x1, y2 - y1)
+        elif mode == 'center':
+            # (x1, y1) is the center, (x2, y2) is the size
+            return (x1 - x2 / 2, y1 - y2 / 2, x2, y2)
+        elif mode == 'radius':
+            # (x1, y1) is the center, (x2, y2) is the radius
+            return (x1 - x2, y1 - y2, x2 * 2, y2 * 2)
+        else:
+            raise ValueError(f"Invalid mode: {mode}. Must be 'corner', 'corners', 'center', or 'radius'.")
+    
+    @property
+    def rect_mode(self) -> str:
+        """
+        Returns the current rectangle mode.
+        
+        Returns:
+            str: The current rectangle mode ('corner', 'corners', 'center', or 'radius').
+        """
+        return self._rect_mode
+    
+    @rect_mode.setter
+    def rect_mode(self, mode:str) -> None:
+        """
+        Sets the rectangle mode for drawing rectangles.
+        
+        Args:
+            mode (str): The rectangle mode to set. Can be 'corner', 'corners', 'center', or 'radius'.
+        
+        Raises:
+            ValueError: If the mode is not one of the expected values.
+        """
+        if mode not in ['corner', 'corners', 'center', 'radius']:
+            raise ValueError(f"Invalid rectangle mode: {mode}. Must be 'corner', 'corners', 'center', or 'radius'.")
+        self._rect_mode = mode
+    
+    @property
+    def ellipse_mode(self) -> str:
+        """
+        Returns the current ellipse mode.
+        
+        Returns:
+            str: The current ellipse mode ('center' or 'radius').
+        """
+        return self._ellipse_mode
+    
+    @ellipse_mode.setter
+    def ellipse_mode(self, mode:str) -> None:
+        """
+        Sets the ellipse mode for drawing ellipses.
+        
+        Args:
+            mode (str): The ellipse mode to set. Can be 'center' or 'radius'.
+        
+        Raises:
+            ValueError: If the mode is not one of the expected values.
+        """
+        if mode not in ['center', 'radius']:
+            raise ValueError(f"Invalid ellipse mode: {mode}. Must be 'center' or 'radius'.")
+        self._ellipse_mode = mode
+    
+    @property
+    def image_mode(self) -> str:
+        """
+        Returns the current image mode.
+        
+        Returns:
+            str: The current image mode ('corner', 'corners', 'center', or 'radius').
+        """
+        return self._image_mode
+    
+    @image_mode.setter
+    def image_mode(self, mode:str) -> None:
+        """
+        Sets the image mode for drawing images.
+        
+        Args:
+            mode (str): The image mode to set. Can be 'corner', 'corners', 'center', or 'radius'.
+        
+        Raises:
+            ValueError: If the mode is not one of the expected values.
+        """
+        if mode not in ['corner', 'corners', 'center', 'radius']:
+            raise ValueError(f"Invalid image mode: {mode}. Must be 'corner', 'corners', 'center', or 'radius'.")
+        self._image_mode = mode
+    
+    
+    @property
+    def text_align_x(self) -> int:
+        """
+        Returns the current horizontal text alignment.
+        
+        Returns:
+            int: The current horizontal text alignment (0: left, 1: right).
+        """
+        return self._text_align_x
+    @text_align_x.setter
+    def text_align_x(self, align:int) -> None:
+        """
+        Sets the horizontal text alignment.
+        
+        Args:
+            align (int): The horizontal text alignment to set (0: left, 1: right).
+        
+        Raises:
+            ValueError: If the alignment is not 0 or 1.
+        """
+        if align not in [0, 1]:
+            raise ValueError("text_align_x must be 0 (left) or 1 (right).")
+        self._text_align_x = align
+        
+    @property
+    def text_align_y(self) -> int:
+        """
+        Returns the current vertical text alignment.
+        
+        Returns:
+            int: The current vertical text alignment (0: top, 1: bottom).
+        """
+        return self._text_align_y
+    @text_align_y.setter
+    def text_align_y(self, align:int) -> None:
+        """
+        Sets the vertical text alignment.
+        
+        Args:
+            align (int): The vertical text alignment to set (0: top, 1: bottom).
+        
+        Raises:
+            ValueError: If the alignment is not 0 or 1.
+        """
+        if align not in [0, 1]:
+            raise ValueError("text_align_y must be 0 (top) or 1 (bottom).")
+        self._text_align_y = align
+    
+    @property
+    def text_align(self) -> tuple[int, int]:
+        """
+        Returns the current text alignment as a tuple (horizontal, vertical).
+        
+        Returns:
+            tuple[int, int]: A tuple representing the horizontal and vertical text alignment.
+        """
+        return (self._text_align_x, self._text_align_y)
+    @text_align.setter
+    def text_align(self, align:tuple[int, int]) -> None:
+        """
+        Sets the text alignment.
+        
+        Args:
+            align (tuple[int, int]): A tuple representing the horizontal and vertical text alignment.
+        
+        Raises:
+            ValueError: If the alignment is not a tuple of two integers (0 or 1).
+        """
+        if not isinstance(align, tuple) or len(align) != 2:
+            raise ValueError("text_align must be a tuple of two integers (horizontal, vertical).")
+        if align[0] not in [0, 1] or align[1] not in [0, 1]:
+            raise ValueError("text_align must be (0, 0), (1, 0), (0, 1), or (1, 1).")
+        self._text_align_x, self._text_align_y = align
+    
+    @property
+    def text_font(self) -> pygame.font.Font:
+        """
+        Returns the current font used for text rendering.
+        
+        Returns:
+            pygame.font.Font: The current font object.
+        """
+        return self._text_font
+    @text_font.setter
+    def text_font(self, font:pygame.font.Font) -> None:
+        """
+        Sets the font for text rendering.
+        
+        Args:
+            font (pygame.font.Font): The font object to set. If None, resets to the default font.
+        
+        Raises:
+            TypeError: If the font is not a pygame.font.Font instance.
+        """
+        if font is not None and not isinstance(font, pygame.font.Font):
+            raise TypeError("text_font must be a pygame.font.Font instance or None.")
+        self._text_font = font if font is not None else pygame.font.Font(None, 36)
+    
+    @property
+    def text_size(self) -> int:
+        """
+        Returns the current text size.
+        
+        Returns:
+            int: The current text size.
+        """
+        return self._text_size
+    @text_size.setter
+    def text_size(self, size:int) -> None:
+        """
+        Sets the text size for rendering.
+        
+        Args:
+            size (int): The size to set as the text size.
+        
+        Raises:
+            ValueError: If the size is less than 1.
+        """
+        if not isinstance(size, int) or size < 1:
+            raise ValueError("text_size must be an integer greater than or equal to 1.")
+        self._text_size = size
+        if self._text_font is not None:
+            self._text_font = pygame.font.Font(self._text_font.get_name(), size)
+    
+    @property
+    def text_leading(self) -> int:
+        """
+        Returns the current text leading (line spacing).
+        
+        Returns:
+            int: The current text leading.
+        """
+        return self._text_leading
+    @text_leading.setter
+    def text_leading(self, leading:int) -> None:
+        """
+        Sets the text leading (line spacing) for rendering.
+        
+        Args:
+            leading (int): The leading to set for text rendering.
+        
+        Raises:
+            ValueError: If the leading is less than 0.
+        """
+        if not isinstance(leading, int) or leading < 0:
+            raise ValueError("text_leading must be an integer greater than or equal to 0.")
+        self._text_leading = leading
+    
+    
+    @property
+    def fill_color(self) -> Color:
+        """
+        Returns the current fill color.
+        
+        Returns:
+            Color: The current fill color.
+        """
+        return self._fill_color
+    @fill_color.setter
+    def fill_color(self, color:Color) -> None:
+        """
+        Sets the fill color for drawing shapes.
+        
+        Args:
+            color (Color): The color to set as the fill color.
+        """
+        if not isinstance(color, Color):
+            raise TypeError("fill_color must be a Color instance.")
+        self._fill_color = color
+    
+    @property
+    def stroke_color(self) -> Color:
+        """
+        Returns the current stroke color.
+        
+        Returns:
+            Color: The current stroke color.
+        """
+        return self._stroke_color
+    @stroke_color.setter
+    def stroke_color(self, color:Color) -> None:
+        """
+        Sets the stroke color for drawing shapes.
+        
+        Args:
+            color (Color): The color to set as the stroke color.
+        
+        Raises:
+            TypeError: If the color is not a Color instance.
+        """
+        if not isinstance(color, Color):
+            raise TypeError("stroke_color must be a Color instance.")
+        self._stroke_color = color
+    
+    @property
+    def stroke_width(self) -> int:
+        """
+        Returns the current stroke width.
+        
+        Returns:
+            int: The current stroke width.
+        """
+        return self._stroke_width
+    @stroke_width.setter
+    def stroke_width(self, width:int) -> None:
+        """
+        Sets the stroke width for drawing shapes.
+        
+        Args:
+            width (int): The width to set as the stroke width.
+        
+        Raises:
+            ValueError: If the width is less than 1.
+        """
+        if not isinstance(width, int) or width < 1:
+            raise ValueError("stroke_width must be an integer greater than or equal to 1.")
+        self._stroke_width = width
+    
+    @property
+    def texture(self) -> pygame.Surface|None:
+        """
+        Returns the current texture used for filling shapes.
+        
+        Returns:
+            pygame.Surface: The current texture surface, or None if no texture is set.
+        """
+        return self._texture
+    @texture.setter
+    def texture(self, texture:pygame.Surface|None) -> None:
+        """
+        Sets the texture for filling shapes.
+        
+        Args:
+            texture (pygame.Surface | None): The texture surface to set, or None to remove the texture.
+        
+        Raises:
+            TypeError: If the texture is not a pygame.Surface or None.
+        """
+        if texture is not None and not isinstance(texture, pygame.Surface):
+            raise TypeError("texture must be a pygame.Surface or None.")
+        self._gradient = None  # Reset gradient if texture is set
+        self._texture = texture
+    
+    @property
+    def gradient(self) -> tuple[Color, Color]|None:
+        """
+        Returns the current gradient used for filling shapes.
+        
+        Returns:
+            tuple[Color, Color]: A tuple of two Color instances representing the gradient colors, or None if no gradient is set.
+        """
+        return self._gradient
+    @gradient.setter
+    def gradient(self, colors:tuple[Color, Color]|None) -> None:
+        """
+        Sets the gradient for filling shapes.
+        
+        Args:
+            colors (tuple[Color, Color] | None): A tuple of two Color instances representing the gradient colors, or None to remove the gradient.
+        
+        Raises:
+            TypeError: If colors is not a tuple of two Color instances or None.
+        """
+        if colors is not None:
+            if not isinstance(colors, tuple) or len(colors) != 2:
+                raise TypeError("gradient must be a tuple of two Color instances or None.")
+            if not all(isinstance(c, Color) for c in colors):
+                raise TypeError("Both elements of the gradient must be Color instances.")
+        self._texture = None
+        self._gradient = colors
+    
+    
+    @property
+    def curve_detail(self) -> int:
+        """
+        Returns the current detail level for bezier curves.
+        
+        Returns:
+            int: The current detail level for bezier curves.
+        """
+        return self._curve_detail
+    @curve_detail.setter
+    def curve_detail(self, detail:int) -> None:
+        """
+        Sets the detail level for bezier curves.
+        
+        Args:
+            detail (int): The detail level to set for bezier curves.
+        
+        Raises:
+            ValueError: If the detail is less than 1.
+        """
+        if not isinstance(detail, int) or detail < 1:
+            raise ValueError("curve_detail must be an integer greater than or equal to 1.")
+        self._curve_detail = detail
+    
+    
+    # Pixel Access
+    def set_pixel(self, x:int, y:int, color:Color) -> None:
+        """
+        Sets the pixel at (x, y) to the specified color.
+        
+        Args:
+            x (int): The x coordinate of the pixel.
+            y (int): The y coordinate of the pixel.
+            color (Color): The color to set the pixel to.
+        """
+        self.set_at((x, y), color.to_tuple())
+    
+    def get_pixel(self, x:int, y:int) -> Color:
+        """
+        Gets the color of the pixel at (x, y).
+        
+        Args:
+            x (int): The x coordinate of the pixel.
+            y (int): The y coordinate of the pixel.
+        
+        Returns:
+            Color: The color of the pixel at (x, y).
+        """
+        return Color(*self.get_at((x, y)))
+    
+    
+    # Colors
+    def no_fill(self) -> None:
+        """
+        Disables the fill color for shapes.
+        This means shapes will not be filled with any color when drawn.
+        """
+        self._fill_color = Color(0, 0, 0, 0)
+    
+    def no_stroke(self) -> None:
+        """
+        Disables the stroke color for shapes.
+        This means shapes will not have an outline when drawn.
+        """
+        self._stroke_color = Color(0, 0, 0, 0)
+        self._stroke_width = 0
+    
+    def no_texture(self) -> None:
+        """
+        Disables the texture for shapes.
+        This means shapes will not be filled with any texture when drawn.
+        """
+        self._texture = None
+    
+    def no_gradient(self) -> None:
+        """
+        Disables the gradient for shapes.
+        This means shapes will not be filled with any gradient when drawn.
+        """
+        self._gradient = None
+    
+    
+    # Drawing Methods
+    def background(self, color:Color) -> None:
+        """
+        Fills the entire surface with the specified background color.
+        
+        Args:
+            color (Color): The color to fill the surface with.
+        """
+        self.fill(color.to_tuple())
+    
+    
+    def path(self, points:Iterable[Vector2D]) -> None:
+        """
+        Draws a path defined by a list of Vector2D points.
+        
+        Args:
+            points (Iterable[Vector2D]): An iterable of Vector2D points defining the path.
+        """
+        
+        if not isinstance(points, Iterable):
+            raise TypeError("points must be an iterable of Vector2D instances.")
+        
+        # Transform points using the last transformation matrix
+        transformed_points = [self.last_transform @ p for p in points]
+        
+        # Draw the path outline
+        self._shape_outline(transformed_points, self._stroke_color, self._stroke_width)
+    
+    def shape(self, points:Iterable[Vector2D]) -> None:
+        """
+        Draws a shape defined by a list of Vector2D points.
+        
+        Args:
+            points (Iterable[Vector2D]): An iterable of Vector2D points defining the shape.
+        """
+        
+        if not isinstance(points, Iterable):
+            raise TypeError("points must be an iterable of Vector2D instances.")
+        
+        # Transform points using the last transformation matrix
+        transformed_points = [self.last_transform @ p for p in points]
+        
+        # Fill the shape with the current fill color
+        self._shape_fill(transformed_points, self._fill_color)
+        
+        # Draw the outline of the shape
+        self._shape_outline(transformed_points, self._stroke_color, self._stroke_width)
+    
+    
+    def point(self, x:float, y:float) -> None:
+        """
+        Draws a point at the specified position.
+        
+        Args:
+            x (float): The x coordinate where the point should be drawn.
+            y (float): The y coordinate where the point should be drawn.
+        """
+        
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            raise TypeError("x and y must be numbers.")
+        
+        # Transform the point using the last transformation matrix
+        transformed_point = self.last_transform @ Vector2D(x, y)
+        
+        # Draw the point as a small circle
+        self._shape_outline(
+            [transformed_point, transformed_point],
+            self._stroke_color,
+            self._stroke_width
+        )
+    
+    def line(self, x1:float, y1:float, x2:float, y2:float) -> None:
+        """
+        Draws a line from (x1, y1) to (x2, y2).
+        
+        Args:
+            x1 (float): The x coordinate of the start point.
+            y1 (float): The y coordinate of the start point.
+            x2 (float): The x coordinate of the end point.
+            y2 (float): The y coordinate of the end point.
+        """
+        
+        if not all(isinstance(coord, (int, float)) for coord in [x1, y1, x2, y2]):
+            raise TypeError("All coordinates must be numbers.")
+        
+        # Transform points using the last transformation matrix
+        start_point = self.last_transform @ Vector2D(x1, y1)
+        end_point = self.last_transform @ Vector2D(x2, y2)
+        
+        # Draw the line outline
+        self._shape_outline([start_point, end_point], self._stroke_color, self._stroke_width)
+    
+    def bezier(self, points:Iterable[Vector2D]) -> None:
+        """
+        Draws a Bezier curve defined by a list of Vector2D points.
+        
+        Args:
+            points (Iterable[Vector2D]): An iterable of Vector2D points defining the Bezier curve.
+            steps (int, optional): The number of steps to use for drawing the curve. Defaults to 100.
+        """
+        
+        if not isinstance(points, Iterable):
+            raise TypeError("points must be an iterable of Vector2D instances.")
+        
+        if len(points) < 2:
+            raise ValueError("At least two points are required to draw a Bezier curve.")
+        
+        # Transform points using the last transformation matrix
+        transformed_points = [self.last_transform @ p for p in points]
+        
+        # Calculate Bezier curve points
+        bezier_points = []
+        for t in np.linspace(0, 1, self._curve_detail):
+            point = Vector2D(0, 0)
+            n = len(transformed_points) - 1
+            for i, p in enumerate(transformed_points):
+                coeff = (np.math.factorial(n) / 
+                         (np.math.factorial(i) * np.math.factorial(n - i))) * \
+                         (t ** i) * ((1 - t) ** (n - i)))
+                point += coeff * p
+            bezier_points.append(point)
+        
+        # Draw the Bezier curve outline
+        self._shape_outline(bezier_points, self._stroke_color, self._stroke_width)
+    
+    def cubic_bezier(self, x1:float, y1:float, x2:float, y2:float, x3:float, y3:float, x4:float, y4:float) -> None:
+        """
+        Draws a cubic Bezier curve defined by four control points.
+        
+        Args:
+            x1 (float): The x coordinate of the first control point.
+            y1 (float): The y coordinate of the first control point.
+            x2 (float): The x coordinate of the second control point.
+            y2 (float): The y coordinate of the second control point.
+            x3 (float): The x coordinate of the third control point.
+            y3 (float): The y coordinate of the third control point.
+            x4 (float): The x coordinate of the fourth control point.
+            y4 (float): The y coordinate of the fourth control point.
+        """
+        
+        # Transform points using the last transformation matrix
+        transformed_points = [
+            self.last_transform @ Vector2D(x1, y1),
+            self.last_transform @ Vector2D(x2, y2),
+            self.last_transform @ Vector2D(x3, y3),
+            self.last_transform @ Vector2D(x4, y4)
+        ]
+        
+        # Calculate cubic Bezier curve points
+        bezier_points = []
+        for t in np.linspace(0, 1, self._curve_detail):
+            point = Vector2D(0, 0)
+            for i in range(4):
+                coeff = (np.math.factorial(3) / 
+                         (np.math.factorial(i) * np.math.factorial(3 - i))) * \
+                         (t ** i) * ((1 - t) ** (3 - i)))
+                point += coeff * transformed_points[i]
+            bezier_points.append(point)
+        
+        # Draw the cubic Bezier curve outline
+        self._shape_outline(bezier_points, self._stroke_color, self._stroke_width)
+    
+    def triangle(self, x1:float, y1:float, x2:float, y2:float, x3:float, y3:float) -> None:
+        """
+        Draws a triangle defined by three points.
+        
+        Args:
+            x1 (float): The x coordinate of the first point.
+            y1 (float): The y coordinate of the first point.
+            x2 (float): The x coordinate of the second point.
+            y2 (float): The y coordinate of the second point.
+            x3 (float): The x coordinate of the third point.
+            y3 (float): The y coordinate of the third point.
+        """
+        
+        # Transform points using the last transformation matrix
+        transformed_points = [
+            self.last_transform @ Vector2D(x1, y1),
+            self.last_transform @ Vector2D(x2, y2),
+            self.last_transform @ Vector2D(x3, y3)
+        ]
+        
+        # Fill the triangle with the current fill color
+        self._shape_fill(transformed_points, self._fill_color)
+        
+        # Draw the outline of the triangle
+        self._shape_outline(transformed_points, self._stroke_color, self._stroke_width)
+    
+    def rectangle(self, x1:float, y1:float, x2:float, y2:float) -> None:
+        """
+        Draws a rectangle defined by two points.
+        
+        Args:
+            x1 (float): The x coordinate of the first point.
+            y1 (float): The y coordinate of the first point.
+            x2 (float): The x coordinate of the second point.
+            y2 (float): The y coordinate of the second point.
+        """
+        
+        # Convert coordinates based on the current rectangle mode
+        coords = self._coordinates(self._rect_mode, x1, y1, x2, y2)
+        
+        # Transform points using the last transformation matrix
+        transformed_points = [
+            self.last_transform @ Vector2D(coords[0], coords[1]),
+            self.last_transform @ Vector2D(coords[0] + coords[2], coords[1]),
+            self.last_transform @ Vector2D(coords[0] + coords[2], coords[1] + coords[3]),
+            self.last_transform @ Vector2D(coords[0], coords[1] + coords[3])
+        ]
+        
+        # Fill the rectangle with the current fill color
+        self._shape_fill(transformed_points, self._fill_color)
+        
+        # Draw the outline of the rectangle
+        self._shape_outline(transformed_points, self._stroke_color, self._stroke_width)
+    
+    def ellipse(self, x1:float, y1:float, x2:float, y2:float) -> None:
+        """
+        Draws an ellipse defined by two points.
+        
+        Args:
+            x1 (float): The x coordinate of the first point.
+            y1 (float): The y coordinate of the first point.
+            x2 (float): The x coordinate of the second point.
+            y2 (float): The y coordinate of the second point.
+        """
+        
+        # Convert coordinates based on the current ellipse mode
+        left, top, width, height = self._coordinates(self._ellipse_mode, x1, y1, x2, y2)
+        
+        center = self.last_transform @ Vector2D(left + width / 2, top + height / 2)
+        vert_vector = self.last_transform @ Vector2D(0, height / 2)
+        horiz_vector = self.last_transform @ Vector2D(width / 2, 0)
+        
+        # Calculate the points of the ellipse
+        ellipse_points = []
+        for angle in np.linspace(0, 2 * np.pi, self._curve_detail):
+            point = center + vert_vector * np.sin(angle) + horiz_vector * np.cos(angle)
+            ellipse_points.append(point)
+            
+        # Fill the ellipse with the current fill color
+        self._shape_fill(ellipse_points, self._fill_color)
+        
+        # Draw the outline of the ellipse
+        self._shape_outline(ellipse_points, self._stroke_color, self._stroke_width)
+    
+    def image(self, image:pygame.Surface, x:float, y:float) -> None:
+        """
+        Draws an image on the surface at the specified position.
+        
+        Args:
+            image (pygame.Surface): The image to draw.
+            x (float): The x coordinate where the image should be drawn.
+            y (float): The y coordinate where the image should be drawn.
+        """
+        
+        if not isinstance(image, pygame.Surface):
+            raise TypeError("image must be a pygame.Surface instance.")
+        
+        # Convert coordinates based on the current image mode
+        coords = self._coordinates(self._image_mode, x, y, image.get_width(), image.get_height())
+        
+        # Transform points using the last transformation matrix
+        transformed_points = [
+            self.last_transform @ Vector2D(coords[0], coords[1]),
+            self.last_transform @ Vector2D(coords[0] + coords[2], coords[1]),
+            self.last_transform @ Vector2D(coords[0] + coords[2], coords[1] + coords[3]),
+            self.last_transform @ Vector2D(coords[0], coords[1] + coords[3])
+        ]
+        
+        # Draw the image at the transformed position
+        self._shape_texture(transformed_points, image, uvs=[
+            Vector2D(0, 0),
+            Vector2D(1, 0),
+            Vector2D(1, 1),
+            Vector2D(0, 1)
+        ])
+    
+    def arc (self, x:float, y:float, radius:float, start_angle:float, end_angle:float) -> None:
+        """
+        Draws an arc defined by a center point, radius, and start and end angles.
+        
+        Args:
+            x (float): The x coordinate of the center of the arc.
+            y (float): The y coordinate of the center of the arc.
+            radius (float): The radius of the arc.
+            start_angle (float): The starting angle of the arc in radians.
+            end_angle (float): The ending angle of the arc in radians.
+        """
+        
+        if not all(isinstance(coord, (int, float)) for coord in [x, y, radius, start_angle, end_angle]):
+            raise TypeError("x, y, radius, start_angle, and end_angle must be numbers.")
+        
+        # Transform the center point using the last transformation matrix
+        center = self.last_transform @ Vector2D(x, y)
+        
+        # Calculate points for the arc
+        arc_points = []
+        for angle in np.linspace(start_angle, end_angle, self._curve_detail):
+            point = center + Vector2D(radius * np.cos(angle), radius * np.sin(angle))
+            arc_points.append(point)
+        
+        # Draw the arc outline
+        self._shape_outline(arc_points, self._stroke_color, self._stroke_width)
+    
+    
+    # Text Methods
+    def text(self, text:str, x:float, y:float) -> None:
+        """
+        Draws text on the surface at the specified position.
+        
+        Args:
+            text (str): The text to draw.
+            x (float): The x coordinate where the text should be drawn.
+            y (float): The y coordinate where the text should be drawn.
+        """
+        
+        if not isinstance(text, str):
+            raise TypeError("text must be a string.")
+        
+        lines = text.split('\n')
+        line_offset = self._text_font.get_height() + self._text_leading
+        for i, line in enumerate(lines):
+            # Create a text surface
+            text_surface = self._text_font.render(text, True, self._fill_color.to_tuple())
+            
+            # Calculate position based on alignment
+            left = self._text_align_x * (self.width - text_surface.get_width())
+            top = self._text_align_y * (self.height - text_surface.get_height())
+            position = (x + left, y + top)
+            
+            transformed_points = [self.last_transform @ vector for vector in [
+                Vector2D(position[0], position[1] + line_offset * i),
+                Vector2D(position[0] + text_surface.get_width(), position[1] + line_offset * i),
+                Vector2D(position[0] + text_surface.get_width(), position[1] + text_surface.get_height() + line_offset * i),
+                Vector2D(position[0], position[1] + text_surface.get_height() + line_offset * i)
+            ]]
+            
+            # Draw the text surface at the transformed position
+            self._shape_texture(transformed_points, text_surface, uvs=[
+                Vector2D(0, 0),
+                Vector2D(1, 0),
+                Vector2D(1, 1),
+                Vector2D(0, 1)
+            ])
+    
+    @staticmethod
+    def list_fonts() -> list[str]:
+        """
+        Lists all available fonts in Pygame.
+        
+        Returns:
+            list[str]: A list of font names available in Pygame.
+        """
+        return pygame.font.get_fonts()
+    
+    
+    # Transformations
+    def push_matrix(self) -> None:
+        """
+        Saves the current transformation matrix onto the stack.
+        This allows for nested transformations.
+        """
+        self._transforms.append(self._transfroms[-1].copy())
+    
+    def pop_matrix(self) -> None:
+        """
+        Restores the last transformation matrix from the stack.
+        This undoes the last push_matrix call.
+        
+        Raises:
+            IndexError: If there are no matrices to pop.
+        """
+        if len(self._transforms) <= 1:
+            raise IndexError("No transformation matrix to pop.")
+        self._transforms.pop()
+    
+    def reset_matrix(self) -> None:
+        """
+        Resets the transformation matrix to the identity matrix.
+        This clears all transformations applied so far.
+        """
+        self._transforms = [Matrix2D.identity()]
+    
+    def apply_matrix(self, matrix:Matrix2D) -> None:
+        """
+        Applies a transformation matrix to the current transformation stack.
+        
+        Args:
+            matrix (Matrix2D): The transformation matrix to apply.
+        
+        Raises:
+            TypeError: If the matrix is not an instance of Matrix2D.
+        """
+        if not isinstance(matrix, Matrix2D):
+            raise TypeError("matrix must be an instance of Matrix2D.")
+        self.last_transform = self.last_transform @ matrix
+    
+    def translate(self, x:float, y:float) -> None:
+        """
+        Translates the current transformation matrix by (x, y).
+        
+        Args:
+            x (float): The x translation amount.
+            y (float): The y translation amount.
+        """
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            raise TypeError("x and y must be numbers.")
+        self.last_transform = self.last_transform.translate(x, y)
+    
+    def rotate(self, angle:float) -> None:
+        """
+        Rotates the current transformation matrix by the specified angle in radians.
+        
+        Args:
+            angle (float): The angle in radians to rotate the matrix.
+        
+        Raises:
+            TypeError: If the angle is not a number.
+        """
+        if not isinstance(angle, (int, float)):
+            raise TypeError("angle must be a number.")
+        self.last_transform = self.last_transform.rotate(angle)
+    
+    def scale(self, sx:float, sy:float) -> None:
+        """
+        Scales the current transformation matrix by (sx, sy).
+        
+        Args:
+            sx (float): The x scale factor.
+            sy (float): The y scale factor.
+        
+        Raises:
+            TypeError: If sx or sy is not a number.
+        """
+        if not isinstance(sx, (int, float)) or not isinstance(sy, (int, float)):
+            raise TypeError("sx and sy must be numbers.")
+        self.last_transform = self.last_transform.scale(sx, sy)
+    
+    
+    # Abstractions
+    def _shape_outline(self, points:Iterable[Vector2D], color:Color=None, width:int=1) -> None:
+        """
+        Draws an outline of a shape defined by a list of points.
+        
+        Args:
+            points (Iterable[Vector2D]): An iterable of Vector2D points defining the shape.
+            color (Color, optional): The color of the outline. Defaults to the current stroke color.
+            width (int, optional): The width of the outline. Defaults to 1.
+        """
+        
+        if color is None:
+            color = self._stroke_color
+        
+        pygame.draw.lines(self, color.to_tuple(), True, [p.to_tuple() for p in points], width)
+    
+    def _shape_fill(self, points:Iterable[Vector2D], color:Color=None) -> None:
+        """
+        Fills a shape defined by a list of points with the specified color.
+        
+        Args:
+            points (Iterable[Vector2D]): An iterable of Vector2D points defining the shape.
+            color (Color, optional): The color to fill the shape with. Defaults to the current fill color.
+        """
+        
+        if color is None:
+            color = self._fill_color
+        pygame.draw.polygon(self, color.to_tuple(), [p.to_tuple() for p in points])
+    
+    def _shape_texture(self, points:Iterable[Vector2D], texture:pygame.Surface, uvs:Iterable[Vector2D]=None) -> None:
+        # TODO: Test
+        """
+        Fills a shape defined by a list of points with a texture.
+
+        Args:
+            points (Iterable[Vector2D]): _description_
+            texture (pygame.Surface): _description_
+            uvs (Iterable[Vector2D], optional): _description_. Defaults to None.
+        """
+        mask_surface = pygame.Surface(texture.get_size(), pygame.SRCALPHA)
+        mask_surface.fill((0, 0, 0, 0))  # Transparent background
+
+        # Scale UV coordinates to texture size
+        scaled_points = [
+            (uv[0] * texture.get_width(), uv[1] * texture.get_height())
+            for uv in uvs
+        ]
+
+        # Draw the polygon on the mask surface
+        pygame.draw.polygon(mask_surface, (255, 255, 255, 255), scaled_points)
+
+        # Blit the texture onto the mask surface
+        mask_surface.blit(texture, (0, 0))
+
+        # Create a final surface for the polygon
+        final_surface = pygame.Surface((self.get_width(), self.get_height()), pygame.SRCALPHA)
+        pygame.draw.polygon(final_surface, (255, 255, 255, 255), points)
+        
+        # Apply the mask to the polygon
+        final_surface.blit(mask_surface, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        
+        # Blit the final surface onto the main surface
+        self.blit(final_surface, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+
+# TODO: Implement Shape drawing logic in Graphics
+class Shape(Iterable):
+    """
+    A base class for shapes that can be drawn on a Yui surface.
+    
+    This class provides methods for drawing shapes with various properties such as fill color, stroke color, and stroke width.
+    It is intended to be subclassed for specific shape implementations.
+    """
+    
+    def __init__(self) -> None:
+        """
+        Initializes the Shape with a reference to the Yui surface.
+        
+        Args:
+            yui (Yui): The Yui surface where the shape will be drawn.
+        """
+        self.points = []
+        self.children = []
+        self.transform = Matrix2D.identity()
+        self.fill_color = Color(0, 0, 0, 0)  # Default transparent fill
+        self.stroke_color = Color(0, 0, 0, 0)
+        self.stroke_width = 1
+        self.texture = None
+        self.gradient = None
+    
+    def vertex(self, x:float|Vector2D, y:float|None=None) -> None:
+        """
+        Adds a vertex to the shape.
+        
+        Args:
+            x (float | Vector2D): The x coordinate of the vertex or a Vector2D instance.
+            y (float | None): The y coordinate of the vertex. If None, x should be a Vector2D instance.
+        
+        Raises:
+            TypeError: If x is not a number or Vector2D, or if y is provided and not a number.
+        """
+        if isinstance(x, Vector2D):
+            self.points.append(self.transform @ x)
+        elif isinstance(x, (int, float)) and y is not None:
+            self.points.append(self.transform @ Vector2D(x, y))
+        else:
+            raise TypeError("x must be a number or Vector2D, and y must be a number if provided.")
+    
+    def __len__(self) -> int:
+        """
+        Returns the number of vertices in the shape.
+        
+        Returns:
+            int: The number of vertices in the shape.
+        """
+        return len(self.points)
+    
+    def __setitem__(self, index:int, value:Vector2D) -> None:
+        """
+        Sets the vertex at the specified index to the given Vector2D value.
+        
+        Args:
+            index (int): The index of the vertex to set.
+            value (Vector2D): The new value for the vertex.
+        
+        Raises:
+            IndexError: If the index is out of bounds.
+            TypeError: If value is not a Vector2D instance.
+        """
+        if not isinstance(value, Vector2D):
+            raise TypeError("value must be a Vector2D instance.")
+        if index < 0 or index >= len(self.points):
+            raise IndexError("Index out of bounds.")
+        self.points[index] = value
+    
+    def __getitem__(self, index:int) -> Vector2D:
+        """
+        Gets the vertex at the specified index.
+        
+        Args:
+            index (int): The index of the vertex to get.
+        
+        Returns:
+            Vector2D: The vertex at the specified index.
+        
+        Raises:
+            IndexError: If the index is out of bounds.
+        """
+        if index < 0 or index >= len(self.points):
+            raise IndexError("Index out of bounds.")
+        return self.points[index]
+    
+    def __iter__(self) -> Iterator[Vector2D]:
+        """
+        Returns an iterator over the vertices of the shape.
+        
+        Returns:
+            Iterator[Vector2D]: An iterator over the vertices of the shape.
+        """
+        return iter(self.points)
+    
+    # Transformation Methods
+    def translate(self, x:float, y:float) -> None:
+        """
+        Translates the shape by (x, y).
+        
+        Args:
+            x (float): The x translation amount.
+            y (float): The y translation amount.
+        
+        Raises:
+            TypeError: If x or y is not a number.
+        """
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            raise TypeError("x and y must be numbers.")
+        self.transform = self.transform.translate(x, y)
+    
+    def rotate(self, angle:float) -> None:
+        """
+        Rotates the shape by the specified angle in radians.
+        
+        Args:
+            angle (float): The angle in radians to rotate the shape.
+        
+        Raises:
+            TypeError: If the angle is not a number.
+        """
+        if not isinstance(angle, (int, float)):
+            raise TypeError("angle must be a number.")
+        self.transform = self.transform.rotate(angle)
+    
+    def scale(self, sx:float, sy:float) -> None:
+        """
+        Scales the shape by (sx, sy).
+        
+        Args:
+            sx (float): The x scale factor.
+            sy (float): The y scale factor.
+        
+        Raises:
+            TypeError: If sx or sy is not a number.
+        """
+        if not isinstance(sx, (int, float)) or not isinstance(sy, (int, float)):
+            raise TypeError("sx and sy must be numbers.")
+        self.transform = self.transform.scale(sx, sy)
+    
+    def apply_matrix(self, matrix:Matrix2D) -> None:
+        """
+        Applies a transformation matrix to the shape.
+        
+        Args:
+            matrix (Matrix2D): The transformation matrix to apply.
+        
+        Raises:
+            TypeError: If the matrix is not an instance of Matrix2D.
+        """
+        if not isinstance(matrix, Matrix2D):
+            raise TypeError("matrix must be an instance of Matrix2D.")
+        self.transform = self.transform @ matrix
+
+    # Drawing Methods
+    @property
+    def fill_color(self) -> Color:
+        """
+        Returns the current fill color of the shape.
+        
+        Returns:
+            Color: The current fill color.
+        """
+        return self._fill_color
+    @fill_color.setter
+    def fill_color(self, color:Color) -> None:
+        """
+        Sets the fill color for the shape.
+        
+        Args:
+            color (Color): The color to set as the fill color.
+        
+        Raises:
+            TypeError: If the color is not an instance of Color.
+        """
+        if not isinstance(color, Color):
+            raise TypeError("fill_color must be an instance of Color.")
+        self._fill_color = color
+    def no_fill(self) -> None:
+        """
+        Disables the fill color for the shape.
+        This means the shape will not be filled with any color when drawn.
+        """
+        self._fill_color = Color(0, 0, 0, 0)
+    
+    @property
+    def stroke_color(self) -> Color:
+        """
+        Returns the current stroke color of the shape.
+        
+        Returns:
+            Color: The current stroke color.
+        """
+        return self._stroke_color
+    @stroke_color.setter
+    def stroke_color(self, color:Color) -> None:
+        """
+        Sets the stroke color for the shape.
+        
+        Args:
+            color (Color): The color to set as the stroke color.
+        
+        Raises:
+            TypeError: If the color is not an instance of Color.
+        """
+        if not isinstance(color, Color):
+            raise TypeError("stroke_color must be an instance of Color.")
+        self._stroke_color = color
+    def no_stroke(self) -> None:
+        """
+        Disables the stroke color for the shape.
+        This means the shape will not have an outline when drawn.
+        """
+        self._stroke_color = Color(0, 0, 0, 0)
+        self._stroke_width = 0
+    
+    @property
+    def stroke_width(self) -> int:
+        """
+        Returns the current stroke width of the shape.
+        
+        Returns:
+            int: The current stroke width.
+        """
+        return self._stroke_width
+    @stroke_width.setter
+    def stroke_width(self, width:int) -> None:
+        """
+        Sets the stroke width for the shape.
+        
+        Args:
+            width (int): The width to set as the stroke width.
+        
+        Raises:
+            ValueError: If the width is less than 0.
+            TypeError: If the width is not an integer.
+        """
+        if not isinstance(width, int):
+            raise TypeError("stroke_width must be an integer.")
+        if width < 0:
+            raise ValueError("stroke_width must be greater than or equal to 0.")
+        self._stroke_width = width
+    
+    @property
+    def texture(self) -> pygame.Surface|None:
+        """
+        Returns the current texture of the shape.
+        
+        Returns:
+            pygame.Surface | None: The current texture, or None if no texture is set.
+        """
+        return self._texture
+    @texture.setter
+    def texture(self, texture:pygame.Surface|None) -> None:
+        """
+        Sets the texture for the shape.
+        
+        Args:
+            texture (pygame.Surface | None): The texture to set. If None, no texture will be applied.
+        
+        Raises:
+            TypeError: If the texture is not a pygame.Surface instance or None.
+        """
+        if texture is not None and not isinstance(texture, pygame.Surface):
+            raise TypeError("texture must be a pygame.Surface instance or None.")
+        self._texture = texture
+    def no_texture(self) -> None:
+        """
+        Disables the texture for the shape.
+        This means the shape will not be filled with any texture when drawn.
+        """
+        self._texture = None
+    
+    @property
+    def gradient(self) -> list[Color]|None:
+        """
+        Returns the current gradient of the shape.
+        
+        Returns:
+            Gradient | None: The current gradient, or None if no gradient is set.
+        """
+        return self._gradient
+    @gradient.setter
+    def gradient(self, gradient:list[Color]|None) -> None:
+        """
+        Sets the gradient for the shape.
+        
+        Args:
+            gradient (Gradient | None): The gradient to set. If None, no gradient will be applied.
+        
+        Raises:
+            TypeError: If the gradient is not an instance of Gradient or None.
+        """
+        if gradient is not None and not isinstance(gradient, Gradient):
+            raise TypeError("gradient must be an instance of Gradient or None.")
+        self._gradient = gradient
+    def no_gradient(self) -> None:
+        """
+        Disables the gradient for the shape.
+        This means the shape will not be filled with any gradient when drawn.
+        """
+        self._gradient = None
+
+
+# YuiElement
+class Yui():
+    pass
+
+class YuiRoot(Yui):
+    pass
+
+class Mouse():
+    pass
+
+class MouseEvent():
+    pass
+
+class MouseListener():
+    pass
+
+class Keyboard():
+    pass
+
+class KeyboardEvent():
+    pass
+
+class KeyboardListener():
+    pass
