@@ -1278,14 +1278,11 @@ class Graphics(pygame.surface.Surface):
         # Calculate Bezier curve points
         bezier_points = []
         for t in np.linspace(0, 1, self._curve_detail):
-            point = Vector2D(0, 0)
-            n = len(transformed_points) - 1
+            ps = transformed_points
             for i, p in enumerate(transformed_points):
-                coeff = (np.math.factorial(n) / 
-                         (np.math.factorial(i) * np.math.factorial(n - i))) * \
-                         (t ** i) * ((1 - t) ** (n - i)))
-                point += coeff * p
-            bezier_points.append(point)
+                for j, q in enumerate(transformed_points[:len(transformed_points) - 1 - i]):
+                    ps[i] = ps[i] * (1 - t) + ps[i + 1] * t
+            bezier_points.append(ps[0])
         
         # Draw the Bezier curve outline
         self._shape_outline(bezier_points, self._stroke_color, self._stroke_width)
@@ -1316,12 +1313,11 @@ class Graphics(pygame.surface.Surface):
         # Calculate cubic Bezier curve points
         bezier_points = []
         for t in np.linspace(0, 1, self._curve_detail):
-            point = Vector2D(0, 0)
-            for i in range(4):
-                coeff = (np.math.factorial(3) / 
-                         (np.math.factorial(i) * np.math.factorial(3 - i))) * \
-                         (t ** i) * ((1 - t) ** (3 - i)))
-                point += coeff * transformed_points[i]
+            u = 1 - t
+            point = u**3 * transformed_points[0] + \
+                    3*u**2*t * transformed_points[1] + \
+                    3*u*t**2 * transformed_points[2] + \
+                    t**3 * transformed_points[3]
             bezier_points.append(point)
         
         # Draw the cubic Bezier curve outline
@@ -1713,421 +1709,432 @@ class Animation:
         """
         return ease.value(formula.value(ease.time(t)), t)
     
-    class Ease:
-        def __init__(self):
-            """
-            Static class for easing functions.
-            """
-            pass
-        def time(self, t:float) -> float:
-            """
-            Argument for Formula.value().
-            
-            Args:
-                t (float): The time value between 0 and 1.
-            
-            Returns:
-                float: The eased value.
-            """
-            return t
-        def value(self, t:float, v:float) -> float:
-            """
-            Final part of the equation.
-            
-            Args:
-                t (float): The time value between 0 and 1.
-                v (float): The value to ease.
-            
-            Returns:
-                float: The eased value.
-            """
-            return v
+class Ease:
+    def __init__(self):
+        """
+        Static class for easing functions.
+        """
+        pass
+    def time(self, t:float) -> float:
+        """
+        Argument for Formula.value().
         
-        class In(super().Ease):
-            """
-            Easing function for ease-in.
-            """
-            def time(self, t:float) -> float:
-                return t
-            def value(self, t:float, v:float) -> float:
-                return v
-        class Out(super().Ease):
-            """
-            Easing function for ease-out.
-            """
-            def time(self, t:float) -> float:
-                return 1 - t
-            def value(self, t:float, v:float) -> float:
-                return 1 - v
-        class InOut(super().Ease):
-            """
-            Easing function for ease-in-out.
-            """
-            def time(self, t:float) -> float:
-                return 2 * t if t < 0.5 else 2 * (1 - t)
-            def value(self, t:float, v:float) -> float:
-                return v if t < 0.5 else 1 - v
-        class OutIn(super().Ease):
-            """
-            Easing function for ease-out-in.
-            """
-            def time(self, t:float) -> float:
-                return 1 - (2 * t if t < 0.5 else 2 * (1 - t))
-            def value(self, t:float, v:float) -> float:
-                return 1 - v if t < 0.5 else v
-    class Formula:
-        def __init__(self):
-            """
-            Static class for mathematical formulas.
-            """
-            pass
-        def value(self, t:float) -> float:
-            """
-            Applies a mathematical formula to the time value.
-            Args:
-                t (float): The time value between 0 and 1.
-            Returns:
-                float: The calculated value.
-            """
-            return t
+        Args:
+            t (float): The time value between 0 and 1.
         
-        class Polynomial(super().Formula):
-            """
-            Polynomial formula for easing.
-            """
-            def __init__(self, degree:int=2):
-                """
-                Initializes the polynomial formula with a degree.
-                
-                Args:
-                    degree (int): The degree of the polynomial. Defaults to 2.
-                """
-                if not isinstance(degree, int) or degree < 1:
-                    raise ValueError("degree must be an integer greater than or equal to 1.")
-                self.degree = degree
-            def value(self, t:float) -> float:
-                """
-                Applies the polynomial formula to the time value.
-                Args:
-                    t (float): The time value between 0 and 1.
-                Returns:
-                    float: The calculated value based on the polynomial formula.
-                """
-                if not isinstance(t, (int, float)):
-                    raise TypeError("t must be a number.")
-                return t ** self.degree
-        class Exponential(super().Formula):
-            """
-            Exponential formula for easing.
-            """
-            def __init__(self, base:float=2.0):
-                """
-                Initializes the exponential formula with a base.
-                
-                Args:
-                    base (float): The base of the exponential function. Defaults to 2.0.
-                """
-                if not isinstance(base, (int, float)) or base <= 0:
-                    raise ValueError("base must be a positive number.")
-                self.base = base
-            def value(self, t:float) -> float:
-                """
-                Applies the exponential formula to the time value.
-                
-                Args:
-                    t (float): The time value between 0 and 1.
-                
-                Returns:
-                    float: The calculated value based on the exponential formula.
-                """
-                if not isinstance(t, (int, float)):
-                    raise TypeError("t must be a number.")
-                return self.base ** t
-        class Trigoniometric:
-            def __init__(self):
-                """
-                Static class for trigonometric formulas.
-                """
-                pass
-            def value(self, t:float) -> float:
-                """
-                Applies a trigonometric formula to the time value.
-                
-                Args:
-                    t (float): The time value between 0 and 1.
-                
-                Returns:
-                    float: The calculated value based on the trigonometric formula.
-                """
-                return np.sin(t * np.pi * 2)
-        class Circular:
-            def __init__(self):
-                """
-                Static class for circular formulas.
-                """
-                pass
-            def value(self, t:float) -> float:
-                """
-                Applies a circular formula to the time value.
-                
-                Args:
-                    t (float): The time value between 0 and 1.
-                
-                Returns:
-                    float: The calculated value based on the circular formula.
-                """
-                return np.sqrt(1 - (t - 1) ** 2)
-    class Keyframe:
-        def __init__(self, time:float, value:float, ease:Animation.Ease=None):
-            """
-            Initializes a keyframe with a time, value, and optional easing function.
-            
-            Args:
-                time (float): The time from the last keyframe.
-                value (float): The value of the keyframe.
-                ease (Animation.Ease, optional): The easing function to apply. Defaults to None.
-            """
-            if not isinstance(time, (int, float)):
-                raise TypeError("time must be a number.")
-            if not isinstance(value, (int, float)):
-                raise TypeError("value must be a number.")
-            self.time = time
-            self.value = value
-            self.ease = ease if ease is not None else Animation.Ease()
-    class Envelope:
-        def __init__(self, keyframes:list[Animation.Keyframe]=[], delay:float=0.0):
-            """
-            Initializes an envelope with a list of keyframes.
-            
-            Args:
-                keyframes (list[Animation.Keyframe]): A list of keyframes defining the envelope.
-            """
-            if not isinstance(keyframes, list) or not all(isinstance(kf, Animation.Keyframe) for kf in keyframes):
-                raise TypeError("keyframes must be a list of Animation.Keyframe instances.")
-            self.keyframes = keyframes
-            self.delay = delay
-        def add_keyframe(self, keyframe:Animation.Keyframe) -> None:
-            """
-            Adds a keyframe to the envelope.
-            Args:
-                keyframe (Animation.Keyframe): The keyframe to add.
-            Raises:
-                TypeError: If keyframe is not an instance of Animation.Keyframe.
-            """
-            if not isinstance(keyframe, Animation.Keyframe):
-                raise TypeError("keyframe must be an instance of Animation.Keyframe.")
-            self.keyframes.append(keyframe)
-        def remove_keyframe(self, keyframe:Animation.Keyframe) -> None:
-            """
-            Removes a keyframe from the envelope.
-            Args:
-                keyframe (Animation.Keyframe): The keyframe to remove.
-            Raises:
-                TypeError: If keyframe is not an instance of Animation.Keyframe.
-            """
-            if not isinstance(keyframe, Animation.Keyframe):
-                raise TypeError("keyframe must be an instance of Animation.Keyframe.")
-            self.keyframes.remove(keyframe)
-        def __len__(self) -> int:
-            """
-            Returns the number of keyframes in the envelope.
-            
-            Returns:
-                int: The number of keyframes.
-            """
-            return len(self.keyframes)
-        def __getitem__(self, index:int) -> Animation.Keyframe:
-            """
-            Gets a keyframe by index.
-            
-            Args:
-                index (int): The index of the keyframe to retrieve.
-            
-            Returns:
-                Animation.Keyframe: The keyframe at the specified index.
-            """
-            if not isinstance(index, int):
-                raise TypeError("index must be an integer.")
-            return self.keyframes[index]
-        def __iter__(self):
-            """
-            Returns an iterator over the keyframes in the envelope.
-            
-            Returns:
-                Iterator[Animation.Keyframe]: An iterator over the keyframes.
-            """
-            return iter(self.keyframes)
-        def duration(self) -> float:
-            """
-            Calculates the total duration of the envelope based on the keyframes.
-            
-            Returns:
-                float: The total duration of the envelope.
-            """
-            if not self.keyframes:
-                return 0.0
-            return self.keyframes[-1].time
-        def value_at(self, time:float) -> float:
-            """
-            Gets the value at a specific time based on the keyframes.
-            
-            Args:
-                time (float): The time to get the value for.
-            
-            Returns:
-                float: The value at the specified time.
-            """
-            if not isinstance(time, (int, float)):
-                raise TypeError("time must be a number.")
-            if not self.keyframes:
-                return 0.0
-            
-            # Find the two keyframes surrounding the time
-            for i in range(len(self.keyframes) - 1):
-                if self.keyframes[i].time <= time <= self.keyframes[i + 1].time:
-                    kf1 = self.keyframes[i]
-                    kf2 = self.keyframes[i + 1]
-                    t = (time - kf1.time) / (kf2.time - kf1.time)
-                    return Animation.Ease().value(t, kf1.value + (kf2.value - kf1.value) * t)
-            
-            # If time is after the last keyframe, return the last keyframe's value
-            if time >= self.keyframes[-1].time:
-                return self.keyframes[-1].value
-            # If time is before the first keyframe, return the first keyframe's value
-            return self.keyframes[0].value
-        def copy(self) -> 'Animation.Envelope':
-            """
-            Creates a copy of the envelope.
-            
-            Returns:
-                Animation.Envelope: A new envelope with the same keyframes and delay.
-            """
-            return Animation.Envelope(self.keyframes.copy(), self.delay)
-    class LiveValue:
-        def __init__(self, value:float|int=0.0):
-            """
-            Initializes a live value that can be animated.
-            
-            Args:
-                value (float|int, optional): The initial value. Defaults to 0.0.
-            """
-            if not isinstance(value, (int, float)):
-                raise TypeError("value must be a number.")
-            self.value = value
-            self.base_value = value
-            self.envelopes = []
+        Returns:
+            float: The eased value.
+        """
+        return t
+    def value(self, t:float, v:float) -> float:
+        """
+        Final part of the equation.
         
-        @property
-        def current_value(self) -> float:
-            """
-            Gets the current value of the live value, modified by any active envelopes.
-            
-            Returns:
-                float: The current value.
-            """
-            self.update()
-            return self.value
+        Args:
+            t (float): The time value between 0 and 1.
+            v (float): The value to ease.
         
-        def update(self) -> None:
-            """
-            Updates the live value based on the active envelopes.
-            This method should be called regularly to ensure the value is updated.
-            """
-            value = 0.0
-            for envelope in self.envelopes:
-                if time.time() - envelope.delay > envelope.duration():
-                    self.base_value += envelope.value_at(time.time())
-                else:
-                    value += envelope.value_at(time.time() - envelope.delay)
-            self.value = self.base_value + value
-        def animate_now(self, envelope:Animation.Envelope) -> None:
-            """
-            Immediately applies an envelope to the live value.
-            
-            Args:
-                envelope (Animation.Envelope): The envelope to apply.
-            """
-            if not isinstance(envelope, Animation.Envelope):
-                raise TypeError("envelope must be an instance of Animation.Envelope.")
-            envelope.delay = time.time()
-            self.envelopes.append(envelope.copy())
-            self.update()
-        def animate_after(self, envelope:Animation.Envelope, delay:float) -> None:
-            """
-            Applies an envelope to the live value after a specified delay.
-            
-            Args:
-                envelope (Animation.Envelope): The envelope to apply.
-                delay (float): The delay in seconds before applying the envelope.
-            """
-            if not isinstance(envelope, Animation.Envelope):
-                raise TypeError("envelope must be an instance of Animation.Envelope.")
-            if not isinstance(delay, (int, float)):
-                raise TypeError("delay must be a number.")
-            envelope.delay = time.time() + delay
-            self.envelopes.append(envelope.copy())
-        def animate_end(self, envelope:Animation.Envelope) -> None:
-            """
-            Ends the animation of an envelope.
-            
-            Args:
-                envelope (Animation.Envelope): The envelope to end.
-            """
-            if not isinstance(envelope, Animation.Envelope):
-                raise TypeError("envelope must be an instance of Animation.Envelope.")
-            # Calculate the time at which the all envelopes end
-            end_time = time.time()
-            for env in self.envelopes:
-                if env.duration() + env.delay > end_time:
-                    end_time = env.duration() + env.delay
-            envelope.delay = end_time
-            self.envelopes.append(envelope.copy())
-        def animate(self, envelope:Animation.Envelope) -> None:
-            """
-            Applies an envelope to the live value.
-            
-            Args:
-                envelope (Animation.Envelope): The envelope to apply.
-            """
-            if not isinstance(envelope, Animation.Envelope):
-                raise TypeError("envelope must be an instance of Animation.Envelope.")
-            self.envelopes.append(envelope.copy())
-            self.update()
+        Returns:
+            float: The eased value.
+        """
+        return v
+Animation.Ease = Ease; Ease = None
+class In(Animation.Ease):
+    """
+    Easing function for ease-in.
+    """
+    def time(self, t:float) -> float:
+        return t
+    def value(self, t:float, v:float) -> float:
+        return v
+Animation.Ease.In = In; In = None
+class Out(Ease):
+    """
+    Easing function for ease-out.
+    """
+    def time(self, t:float) -> float:
+        return 1 - t
+    def value(self, t:float, v:float) -> float:
+        return 1 - v
+Animation.Ease.Out = Out; Out = None
+class InOut(Ease):
+    """
+    Easing function for ease-in-out.
+    """
+    def time(self, t:float) -> float:
+        return 2 * t if t < 0.5 else 2 * (1 - t)
+    def value(self, t:float, v:float) -> float:
+        return v if t < 0.5 else 1 - v
+Animation.Ease.InOut = InOut; InOut = None
+class OutIn(Ease):
+    """
+    Easing function for ease-out-in.
+    """
+    def time(self, t:float) -> float:
+        return 1 - (2 * t if t < 0.5 else 2 * (1 - t))
+    def value(self, t:float, v:float) -> float:
+        return 1 - v if t < 0.5 else v
+Animation.Ease.OutIn = OutIn; OutIn = None
+class Formula:
+    def __init__(self):
+        """
+        Static class for mathematical formulas.
+        """
+        pass
+    def value(self, t:float) -> float:
+        """
+        Applies a mathematical formula to the time value.
+        Args:
+            t (float): The time value between 0 and 1.
+        Returns:
+            float: The calculated value.
+        """
+        return t
+Animation.Formula = Formula; Formula = None
+class Polynomial(Animation.Formula):
+    """
+    Polynomial formula for easing.
+    """
+    def __init__(self, degree:int=2):
+        """
+        Initializes the polynomial formula with a degree.
         
-        def set_immediate_value(self, value:float|int) -> None:
-            """
-            Sets the live value immediately without animation.
-            
-            Args:
-                value (float|int): The value to set.
-            """
-            if not isinstance(value, (int, float)):
-                raise TypeError("value must be a number.")
-            self.value = value
-            self.base_value = value
-        def set_ending_value(self, value:float|int) -> None:
-            """
-            Sets the live value to an ending value, clearing all envelopes.
-            
-            Args:
-                value (float|int): The ending value to set.
-            """
-            if not isinstance(value, (int, float)):
-                raise TypeError("value must be a number.")
-            # Calculate final value
-            final_value = self.get_ending_value()
-            self.base_value = final_value - self.value + value
-        def get_ending_value(self) -> float:
-            """
-            Gets the ending value of the live value, considering all envelopes.
-            
-            Returns:
-                float: The ending value.
-            """
-            final_value = self.base_value
-            for envelope in self.envelopes:
-                final_value += envelope.value_at(envelope.duration())
-            return final_value
+        Args:
+            degree (int): The degree of the polynomial. Defaults to 2.
+        """
+        if not isinstance(degree, int) or degree < 1:
+            raise ValueError("degree must be an integer greater than or equal to 1.")
+        self.degree = degree
+    def value(self, t:float) -> float:
+        """
+        Applies the polynomial formula to the time value.
+        Args:
+            t (float): The time value between 0 and 1.
+        Returns:
+            float: The calculated value based on the polynomial formula.
+        """
+        if not isinstance(t, (int, float)):
+            raise TypeError("t must be a number.")
+        return t ** self.degree
+Animation.Formula.Polynomial = Polynomial; Polynomial = None
+class Exponential(Animation.Formula):
+    """
+    Exponential formula for easing.
+    """
+    def __init__(self, base:float=2.0):
+        """
+        Initializes the exponential formula with a base.
+        
+        Args:
+            base (float): The base of the exponential function. Defaults to 2.0.
+        """
+        if not isinstance(base, (int, float)) or base <= 0:
+            raise ValueError("base must be a positive number.")
+        self.base = base
+    def value(self, t:float) -> float:
+        """
+        Applies the exponential formula to the time value.
+        
+        Args:
+            t (float): The time value between 0 and 1.
+        
+        Returns:
+            float: The calculated value based on the exponential formula.
+        """
+        if not isinstance(t, (int, float)):
+            raise TypeError("t must be a number.")
+        return self.base ** t
+Animation.Formula.Exponential = Exponential; Exponential = None
+class Trigoniometric(Animation.Formula):
+    def __init__(self):
+        """
+        Static class for trigonometric formulas.
+        """
+        pass
+    def value(self, t:float) -> float:
+        """
+        Applies a trigonometric formula to the time value.
+        
+        Args:
+            t (float): The time value between 0 and 1.
+        
+        Returns:
+            float: The calculated value based on the trigonometric formula.
+        """
+        return np.sin(t * np.pi * 2)
+Animation.Formula.Trigoniometric = Trigoniometric; Trigoniometric = None
+class Circular(Animation.Formula):
+    def __init__(self):
+        """
+        Static class for circular formulas.
+        """
+        pass
+    def value(self, t:float) -> float:
+        """
+        Applies a circular formula to the time value.
+        
+        Args:
+            t (float): The time value between 0 and 1.
+        
+        Returns:
+            float: The calculated value based on the circular formula.
+        """
+        return np.sqrt(1 - (t - 1) ** 2)
+Animation.Formula.Circular = Circular; Circular = None
+class Keyframe:
+    def __init__(self, time:float, value:float, ease:Animation.Ease=None):
+        """
+        Initializes a keyframe with a time, value, and optional easing function.
+        
+        Args:
+            time (float): The time from the last keyframe.
+            value (float): The value of the keyframe.
+            ease (Animation.Ease, optional): The easing function to apply. Defaults to None.
+        """
+        if not isinstance(time, (int, float)):
+            raise TypeError("time must be a number.")
+        if not isinstance(value, (int, float)):
+            raise TypeError("value must be a number.")
+        self.time = time
+        self.value = value
+        self.ease = ease if ease is not None else Animation.Ease()
+Animation.Keyframe = Keyframe; Keyframe = None
+class Envelope:
+    def __init__(self, keyframes:list[Animation.Keyframe]=[], delay:float=0.0):
+        """
+        Initializes an envelope with a list of keyframes.
+        
+        Args:
+            keyframes (list[Animation.Keyframe]): A list of keyframes defining the envelope.
+        """
+        if not isinstance(keyframes, list) or not all(isinstance(kf, Animation.Keyframe) for kf in keyframes):
+            raise TypeError("keyframes must be a list of Animation.Keyframe instances.")
+        self.keyframes = keyframes
+        self.delay = delay
+    def add_keyframe(self, keyframe:Animation.Keyframe) -> None:
+        """
+        Adds a keyframe to the envelope.
+        Args:
+            keyframe (Animation.Keyframe): The keyframe to add.
+        Raises:
+            TypeError: If keyframe is not an instance of Animation.Keyframe.
+        """
+        if not isinstance(keyframe, Animation.Keyframe):
+            raise TypeError("keyframe must be an instance of Animation.Keyframe.")
+        self.keyframes.append(keyframe)
+    def remove_keyframe(self, keyframe:Animation.Keyframe) -> None:
+        """
+        Removes a keyframe from the envelope.
+        Args:
+            keyframe (Animation.Keyframe): The keyframe to remove.
+        Raises:
+            TypeError: If keyframe is not an instance of Animation.Keyframe.
+        """
+        if not isinstance(keyframe, Animation.Keyframe):
+            raise TypeError("keyframe must be an instance of Animation.Keyframe.")
+        self.keyframes.remove(keyframe)
+    def __len__(self) -> int:
+        """
+        Returns the number of keyframes in the envelope.
+        
+        Returns:
+            int: The number of keyframes.
+        """
+        return len(self.keyframes)
+    def __getitem__(self, index:int) -> Animation.Keyframe:
+        """
+        Gets a keyframe by index.
+        
+        Args:
+            index (int): The index of the keyframe to retrieve.
+        
+        Returns:
+            Animation.Keyframe: The keyframe at the specified index.
+        """
+        if not isinstance(index, int):
+            raise TypeError("index must be an integer.")
+        return self.keyframes[index]
+    def __iter__(self):
+        """
+        Returns an iterator over the keyframes in the envelope.
+        
+        Returns:
+            Iterator[Animation.Keyframe]: An iterator over the keyframes.
+        """
+        return iter(self.keyframes)
+    def duration(self) -> float:
+        """
+        Calculates the total duration of the envelope based on the keyframes.
+        
+        Returns:
+            float: The total duration of the envelope.
+        """
+        if not self.keyframes:
+            return 0.0
+        return self.keyframes[-1].time
+    def value_at(self, time:float) -> float:
+        """
+        Gets the value at a specific time based on the keyframes.
+        
+        Args:
+            time (float): The time to get the value for.
+        
+        Returns:
+            float: The value at the specified time.
+        """
+        if not isinstance(time, (int, float)):
+            raise TypeError("time must be a number.")
+        if not self.keyframes:
+            return 0.0
+        
+        # Find the two keyframes surrounding the time
+        for i in range(len(self.keyframes) - 1):
+            if self.keyframes[i].time <= time <= self.keyframes[i + 1].time:
+                kf1 = self.keyframes[i]
+                kf2 = self.keyframes[i + 1]
+                t = (time - kf1.time) / (kf2.time - kf1.time)
+                return Animation.Ease().value(t, kf1.value + (kf2.value - kf1.value) * t)
+        
+        # If time is after the last keyframe, return the last keyframe's value
+        if time >= self.keyframes[-1].time:
+            return self.keyframes[-1].value
+        # If time is before the first keyframe, return the first keyframe's value
+        return self.keyframes[0].value
+    def copy(self) -> 'Animation.Envelope':
+        """
+        Creates a copy of the envelope.
+        
+        Returns:
+            Animation.Envelope: A new envelope with the same keyframes and delay.
+        """
+        return Animation.Envelope(self.keyframes.copy(), self.delay)
+Animation.Envelope = Envelope; Envelope = None
+class LiveValue:
+    def __init__(self, value:float|int=0.0):
+        """
+        Initializes a live value that can be animated.
+        
+        Args:
+            value (float|int, optional): The initial value. Defaults to 0.0.
+        """
+        if not isinstance(value, (int, float)):
+            raise TypeError("value must be a number.")
+        self.value = value
+        self.base_value = value
+        self.envelopes = []
+    
+    @property
+    def current_value(self) -> float:
+        """
+        Gets the current value of the live value, modified by any active envelopes.
+        
+        Returns:
+            float: The current value.
+        """
+        self.update()
+        return self.value
+    
+    def update(self) -> None:
+        """
+        Updates the live value based on the active envelopes.
+        This method should be called regularly to ensure the value is updated.
+        """
+        value = 0.0
+        for envelope in self.envelopes:
+            if time.time() - envelope.delay > envelope.duration():
+                self.base_value += envelope.value_at(time.time())
+            else:
+                value += envelope.value_at(time.time() - envelope.delay)
+        self.value = self.base_value + value
+    def animate_now(self, envelope:Animation.Envelope) -> None:
+        """
+        Immediately applies an envelope to the live value.
+        
+        Args:
+            envelope (Animation.Envelope): The envelope to apply.
+        """
+        if not isinstance(envelope, Animation.Envelope):
+            raise TypeError("envelope must be an instance of Animation.Envelope.")
+        envelope.delay = time.time()
+        self.envelopes.append(envelope.copy())
+        self.update()
+    def animate_after(self, envelope:Animation.Envelope, delay:float) -> None:
+        """
+        Applies an envelope to the live value after a specified delay.
+        
+        Args:
+            envelope (Animation.Envelope): The envelope to apply.
+            delay (float): The delay in seconds before applying the envelope.
+        """
+        if not isinstance(envelope, Animation.Envelope):
+            raise TypeError("envelope must be an instance of Animation.Envelope.")
+        if not isinstance(delay, (int, float)):
+            raise TypeError("delay must be a number.")
+        envelope.delay = time.time() + delay
+        self.envelopes.append(envelope.copy())
+    def animate_end(self, envelope:Animation.Envelope) -> None:
+        """
+        Ends the animation of an envelope.
+        
+        Args:
+            envelope (Animation.Envelope): The envelope to end.
+        """
+        if not isinstance(envelope, Animation.Envelope):
+            raise TypeError("envelope must be an instance of Animation.Envelope.")
+        # Calculate the time at which the all envelopes end
+        end_time = time.time()
+        for env in self.envelopes:
+            if env.duration() + env.delay > end_time:
+                end_time = env.duration() + env.delay
+        envelope.delay = end_time
+        self.envelopes.append(envelope.copy())
+    def animate(self, envelope:Animation.Envelope) -> None:
+        """
+        Applies an envelope to the live value.
+        
+        Args:
+            envelope (Animation.Envelope): The envelope to apply.
+        """
+        if not isinstance(envelope, Animation.Envelope):
+            raise TypeError("envelope must be an instance of Animation.Envelope.")
+        self.envelopes.append(envelope.copy())
+        self.update()
+    
+    def set_immediate_value(self, value:float|int) -> None:
+        """
+        Sets the live value immediately without animation.
+        
+        Args:
+            value (float|int): The value to set.
+        """
+        if not isinstance(value, (int, float)):
+            raise TypeError("value must be a number.")
+        self.value = value
+        self.base_value = value
+    def set_ending_value(self, value:float|int) -> None:
+        """
+        Sets the live value to an ending value, clearing all envelopes.
+        
+        Args:
+            value (float|int): The ending value to set.
+        """
+        if not isinstance(value, (int, float)):
+            raise TypeError("value must be a number.")
+        # Calculate final value
+        final_value = self.get_ending_value()
+        self.base_value = final_value - self.value + value
+    def get_ending_value(self) -> float:
+        """
+        Gets the ending value of the live value, considering all envelopes.
+        
+        Returns:
+            float: The ending value.
+        """
+        final_value = self.base_value
+        for envelope in self.envelopes:
+            final_value += envelope.value_at(envelope.duration())
+        return final_value
+Animation.LiveValue = LiveValue; LiveValue = None
 # TODO: Implement Shape drawing logic in Graphics
 
 # YuiElement
@@ -2142,6 +2149,18 @@ class Yui():
         self._ax = 0
         self._ay = 0
         
+        # --- Matrix Cache & Flags ---
+        self._local_matrix = Matrix2D.identity()
+        self._world_matrix = Matrix2D.identity()
+        self._local_inverted_matrix = Matrix2D.identity()
+        self._world_inverted_matrix = Matrix2D.identity()
+        self._needs_local_matrix_update = True
+        self._needs_world_matrix_update = True
+
+        # --- Graphics ---
+        self._graphics = None
+        self._needs_graphics_rebuild = True
+        
         # --- Hierarchy ---
         self._parent = None
         self._children = []
@@ -2150,14 +2169,6 @@ class Yui():
         self._destroyed = False
         self._visible = True
         self._enabled = True
-        
-        # --- Matrix Cache & Flags ---
-        self._local_matrix = Matrix2D.identity()
-        self._world_matrix = Matrix2D.identity()
-        self._local_inverted_matrix = Matrix2D.identity()
-        self._world_inverted_matrix = Matrix2D.identity()
-        self._needs_local_matrix_update = True
-        self._needs_world_matrix_update = True
     
     # --- Transform ---
     @property
@@ -2351,6 +2362,27 @@ class Yui():
             self.on_matrix_updated(last_local_matrix, last_world_matrix, last_inverted_local_matrix, last_inverted_world_matrix)
         return self
 
+    # --- Graphics ---
+    # TODO: Implement graphics
+    def draw(self, graphics:Graphics) -> None:
+        """
+        Draws this Yui element using the provided Graphics object.
+        
+        Args:
+            graphics (Graphics): The Graphics object to draw with.
+        """
+        self._update_matrices()
+        with self._graphics.push_matrix():
+            self._graphics.apply_matrix(self.world_matrix)
+            self.on_draw(self._graphics)
+    def _rebuild_graphics(self) -> None:
+        """
+        Rebuilds the graphics representation of this Yui element.
+        This should be overridden by subclasses to define how the element should be drawn.
+        """
+        pass
+        # TODO
+
     # --- Hierarchy ---
     @property
     def parent(self) -> 'Yui':
@@ -2392,16 +2424,7 @@ class Yui():
         """
         return isinstance(self, YuiRoot)
     @property
-    def is_destroyed(self) -> bool:
-        """
-        Checks if this Yui element has been destroyed.
-        
-        Returns:
-            bool: True if the element is destroyed, False otherwise.
-        """
-        return self._destroyed
-    @property
-    def level(self) -> int:
+    def depth(self) -> int:
         """
         Gets the level of this Yui element in the hierarchy.
         
@@ -2414,6 +2437,7 @@ class Yui():
             level += 1
             current = current._parent
         return level
+    # TODO: Height
     @property
     def child_count(self) -> int:
         """
@@ -2444,10 +2468,65 @@ class Yui():
     def is_descendant_of(self, other: 'Yui') -> bool:
         return other in self.ancestors
     
-    def set_parent(self, parent: 'Yui', index:int):
-        # TODO: Implement
-        pass
+
+    def set_parent(self, parent: 'Yui', index:int=None):
+        if self._destroyed or isinstance(self, YuiRoot):
+            return
+        
+        if parent is None: # Can't assign a null parent
+            if self.parent:
+                raise RuntimeError("Tried to assign a null parent on Yui init.")
+            else:
+                raise RuntimeError("Tried to assign a null parent on Yui parent change.")
+        else:
+            if not self.parent: # Initializing
+                index = max(0, min(parent.child_count, index))
+                if not parent.can_child_be_added(self, index) or not self.can_parent_be_set(parent): # Can't be initialized with this parent, would default to None
+                    raise RuntimeError("Can't assign this parent in Yui init.")
+                self.parent = parent
+                self.parent._children.insert(index, self)
+                self.on_parent_set(None)
+                self.parent.on_child_added(self, index)
+            elif self.parent == parent:
+                old_index = self.parent._children.index(self)
+                new_index = max(0, min(self.parent.child_count - 1, index))
+                if not self.parent.can_child_be_moved(self, old_index, new_index): # No change if not allowed to move
+                    return
+                self.parent._children.remove(self)
+                self.parent._children.insert(new_index, self)
+                self.parent.on_child_moved(self, old_index, new_index)
+            else: # Already initialized
+                old_index = self.parent._children.index(self)
+                new_index = max(0, min(parent.child_count, index))
+                old_parent = self.parent
+                if self.can_parent_be_set(parent) and self.can_parent_be_removed(self.parent) and self.parent.can_child_be_removed(self, old_index) and parent.can_child_be_added(self, new_index):
+                    self.parent._children.remove(self)
+                    self.parent = parent
+                    self.parent._children.insert(index, self)
+                    self.on_parent_removed(old_parent)
+                    old_parent.on_child_removed(self, old_index)
+                    self.on_parent_set(self.parent)
+                    self.parent.on_child_added(self, new_index)
     
+    # --- Flags ---
+    @property
+    def is_destroyed(self) -> bool:
+        """
+        Checks if this Yui element has been destroyed.
+        
+        Returns:
+            bool: True if the element is destroyed, False otherwise.
+        """
+        return self._destroyed
+    def destroy(self):
+        for child in self.children:
+            child.destroy()
+        self.on_destroyed()
+        if self.parent is not None:
+            self.parent.on_child_destroyed(self, self.parent._children.index(self))
+            self.parent._children.remove(self)
+        self._parent = None
+
     # --- Callbacks ---
     def on_transform_changed(self) -> None:
         """
@@ -2461,7 +2540,10 @@ class Yui():
         This can be overridden by subclasses to perform custom actions.
         """
         pass
-    
+    def on_destroyed(self):
+        pass
+    def on_child_destroyed(self):
+        pass
     def can_child_be_added(self, child:'Yui', index:int) -> bool:
         """
         Checks if the child can be added.
@@ -2573,6 +2655,8 @@ class Yui():
             parent (Yui): The parent to be removed.
         """
         pass
+
+    
     
 class YuiRoot(Yui):
     def __init__(self):
@@ -2611,3 +2695,6 @@ class KeyboardEvent():
 
 class KeyboardListener():
     pass
+
+root = YuiRoot()
+yui = Yui(root)
