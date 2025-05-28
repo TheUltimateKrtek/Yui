@@ -1693,6 +1693,7 @@ class Graphics(pygame.surface.Surface):
         self.blit(final_surface, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
     # TODO: Implement more context managers for transformations and drawing
+# TODO: Implement Shape drawing logic in Graphics
 
 class Animation:
     # Static class with nested classes like Ease, Formula, Keyframe, Envelope and Timeline.
@@ -1708,7 +1709,6 @@ class Animation:
             float: The animated value based on the easing function and formula.
         """
         return ease.value(formula.value(ease.time(t)), t)
-    
 class Ease:
     def __init__(self):
         """
@@ -1748,7 +1748,7 @@ class In(Animation.Ease):
     def value(self, t:float, v:float) -> float:
         return v
 Animation.Ease.In = In; In = None
-class Out(Ease):
+class Out(Animation.Ease):
     """
     Easing function for ease-out.
     """
@@ -1757,7 +1757,7 @@ class Out(Ease):
     def value(self, t:float, v:float) -> float:
         return 1 - v
 Animation.Ease.Out = Out; Out = None
-class InOut(Ease):
+class InOut(Animation.Ease):
     """
     Easing function for ease-in-out.
     """
@@ -1766,7 +1766,7 @@ class InOut(Ease):
     def value(self, t:float, v:float) -> float:
         return v if t < 0.5 else 1 - v
 Animation.Ease.InOut = InOut; InOut = None
-class OutIn(Ease):
+class OutIn(Animation.Ease):
     """
     Easing function for ease-out-in.
     """
@@ -2135,10 +2135,9 @@ class LiveValue:
             final_value += envelope.value_at(envelope.duration())
         return final_value
 Animation.LiveValue = LiveValue; LiveValue = None
-# TODO: Implement Shape drawing logic in Graphics
 
 # YuiElement
-class Yui():
+class Yui:
     def __init__(self, parent:Yui):
         # --- Transform ---
         self._x = 0
@@ -2169,6 +2168,8 @@ class Yui():
         self._destroyed = False
         self._visible = True
         self._enabled = True
+
+        self.set_parent(parent)
     
     # --- Transform ---
     @property
@@ -2470,7 +2471,7 @@ class Yui():
     
 
     def set_parent(self, parent: 'Yui', index:int=None):
-        if self._destroyed or isinstance(self, YuiRoot):
+        if self._destroyed or isinstance(self, YuiRoot) or (parent is not None and not parent.is_destroyed):
             return
         
         if parent is None: # Can't assign a null parent
@@ -2479,34 +2480,37 @@ class Yui():
             else:
                 raise RuntimeError("Tried to assign a null parent on Yui parent change.")
         else:
+            if parent.is_descendant_of(self): # Can only happen after init
+                return
+            
             if not self.parent: # Initializing
-                index = max(0, min(parent.child_count, index))
+                index = max(0, min(parent.child_count, index if index else 0x7FFFFFFF))
                 if not parent.can_child_be_added(self, index) or not self.can_parent_be_set(parent): # Can't be initialized with this parent, would default to None
                     raise RuntimeError("Can't assign this parent in Yui init.")
-                self.parent = parent
-                self.parent._children.insert(index, self)
+                self._parent = parent
+                self._parent._children.insert(index, self)
                 self.on_parent_set(None)
-                self.parent.on_child_added(self, index)
-            elif self.parent == parent:
-                old_index = self.parent._children.index(self)
-                new_index = max(0, min(self.parent.child_count - 1, index))
-                if not self.parent.can_child_be_moved(self, old_index, new_index): # No change if not allowed to move
+                self._parent.on_child_added(self, index)
+            elif self._parent == parent:
+                old_index = self._parent._children.index(self)
+                new_index = max(0, min(self._parent.child_count - 1, index))
+                if not self._parent.can_child_be_moved(self, old_index, new_index): # No change if not allowed to move
                     return
-                self.parent._children.remove(self)
-                self.parent._children.insert(new_index, self)
-                self.parent.on_child_moved(self, old_index, new_index)
+                self._parent._children.remove(self)
+                self._parent._children.insert(new_index, self)
+                self._parent.on_child_moved(self, old_index, new_index)
             else: # Already initialized
-                old_index = self.parent._children.index(self)
+                old_index = self._parent._children.index(self)
                 new_index = max(0, min(parent.child_count, index))
-                old_parent = self.parent
-                if self.can_parent_be_set(parent) and self.can_parent_be_removed(self.parent) and self.parent.can_child_be_removed(self, old_index) and parent.can_child_be_added(self, new_index):
-                    self.parent._children.remove(self)
-                    self.parent = parent
-                    self.parent._children.insert(index, self)
+                old_parent = self._parent
+                if self.can_parent_be_set(parent) and self.can_parent_be_removed(self._parent) and self._parent.can_child_be_removed(self, old_index) and parent.can_child_be_added(self, new_index):
+                    self._parent._children.remove(self)
+                    self._parent = parent
+                    self._parent._children.insert(index, self)
                     self.on_parent_removed(old_parent)
                     old_parent.on_child_removed(self, old_index)
-                    self.on_parent_set(self.parent)
-                    self.parent.on_child_added(self, new_index)
+                    self.on_parent_set(self._parent)
+                    self._parent.on_child_added(self, new_index)
     
     # --- Flags ---
     @property
@@ -2671,12 +2675,6 @@ class YuiRoot(Yui):
     
         
     
-        
-        
-        
-
-class YuiRoot(Yui):
-    pass
 
 class Mouse():
     pass
