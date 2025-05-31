@@ -3,6 +3,7 @@ import time
 from typing import Iterable, Iterator
 import numpy as np
 import pygame
+from abc import ABC, abstractmethod
 
 # ---------------------
 # Utils
@@ -1738,7 +1739,7 @@ class Ease:
             float: The eased value.
         """
         return v
-Animation.Ease = Ease; Ease = None
+Animation.Ease = Ease; del Ease
 class In(Animation.Ease):
     """
     Easing function for ease-in.
@@ -1747,7 +1748,7 @@ class In(Animation.Ease):
         return t
     def value(self, t:float, v:float) -> float:
         return v
-Animation.Ease.In = In; In = None
+Animation.Ease.In = In; del In
 class Out(Animation.Ease):
     """
     Easing function for ease-out.
@@ -1756,7 +1757,7 @@ class Out(Animation.Ease):
         return 1 - t
     def value(self, t:float, v:float) -> float:
         return 1 - v
-Animation.Ease.Out = Out; Out = None
+Animation.Ease.Out = Out; del Out
 class InOut(Animation.Ease):
     """
     Easing function for ease-in-out.
@@ -1765,7 +1766,7 @@ class InOut(Animation.Ease):
         return 2 * t if t < 0.5 else 2 * (1 - t)
     def value(self, t:float, v:float) -> float:
         return v if t < 0.5 else 1 - v
-Animation.Ease.InOut = InOut; InOut = None
+Animation.Ease.InOut = InOut; del InOut
 class OutIn(Animation.Ease):
     """
     Easing function for ease-out-in.
@@ -1774,7 +1775,7 @@ class OutIn(Animation.Ease):
         return 1 - (2 * t if t < 0.5 else 2 * (1 - t))
     def value(self, t:float, v:float) -> float:
         return 1 - v if t < 0.5 else v
-Animation.Ease.OutIn = OutIn; OutIn = None
+Animation.Ease.OutIn = OutIn; del OutIn
 class Formula:
     def __init__(self):
         """
@@ -1790,7 +1791,7 @@ class Formula:
             float: The calculated value.
         """
         return t
-Animation.Formula = Formula; Formula = None
+Animation.Formula = Formula; del Formula
 class Polynomial(Animation.Formula):
     """
     Polynomial formula for easing.
@@ -1816,7 +1817,7 @@ class Polynomial(Animation.Formula):
         if not isinstance(t, (int, float)):
             raise TypeError("t must be a number.")
         return t ** self.degree
-Animation.Formula.Polynomial = Polynomial; Polynomial = None
+Animation.Formula.Polynomial = Polynomial; del Polynomial
 class Exponential(Animation.Formula):
     """
     Exponential formula for easing.
@@ -1844,7 +1845,7 @@ class Exponential(Animation.Formula):
         if not isinstance(t, (int, float)):
             raise TypeError("t must be a number.")
         return self.base ** t
-Animation.Formula.Exponential = Exponential; Exponential = None
+Animation.Formula.Exponential = Exponential; del Exponential
 class Trigoniometric(Animation.Formula):
     def __init__(self):
         """
@@ -1862,7 +1863,7 @@ class Trigoniometric(Animation.Formula):
             float: The calculated value based on the trigonometric formula.
         """
         return np.sin(t * np.pi * 2)
-Animation.Formula.Trigoniometric = Trigoniometric; Trigoniometric = None
+Animation.Formula.Trigoniometric = Trigoniometric; del Trigoniometric
 class Circular(Animation.Formula):
     def __init__(self):
         """
@@ -1880,7 +1881,7 @@ class Circular(Animation.Formula):
             float: The calculated value based on the circular formula.
         """
         return np.sqrt(1 - (t - 1) ** 2)
-Animation.Formula.Circular = Circular; Circular = None
+Animation.Formula.Circular = Circular; del Circular
 class Keyframe:
     def __init__(self, time:float, value:float, ease:Animation.Ease=None):
         """
@@ -1898,7 +1899,7 @@ class Keyframe:
         self.time = time
         self.value = value
         self.ease = ease if ease is not None else Animation.Ease()
-Animation.Keyframe = Keyframe; Keyframe = None
+Animation.Keyframe = Keyframe; del Keyframe
 class Envelope:
     def __init__(self, keyframes:list[Animation.Keyframe]=[], delay:float=0.0):
         """
@@ -2008,7 +2009,7 @@ class Envelope:
             Animation.Envelope: A new envelope with the same keyframes and delay.
         """
         return Animation.Envelope(self.keyframes.copy(), self.delay)
-Animation.Envelope = Envelope; Envelope = None
+Animation.Envelope = Envelope; del Envelope
 class LiveValue:
     def __init__(self, value:float|int=0.0):
         """
@@ -2134,7 +2135,7 @@ class LiveValue:
         for envelope in self.envelopes:
             final_value += envelope.value_at(envelope.duration())
         return final_value
-Animation.LiveValue = LiveValue; LiveValue = None
+Animation.LiveValue = LiveValue; del LiveValue
 
 # YuiElement
 class Yui:
@@ -2528,7 +2529,8 @@ class Yui:
                 self._world_inverted_matrix = self._world_matrix.invert()
             changed = True
             self._needs_world_matrix_update = False
-        if self.on_matrix_updated(self.)
+        if changed:
+            self.on_matrix_changed(last_local_matrix, last_world_matrix)
 
     def _has_ancestor_requested_world_matrix_update(self) -> bool:
         """
@@ -2588,7 +2590,7 @@ class Yui:
             self._update_matrices()
         return self._world_inverted_matrix
 
-    def to_local_matrix(self, point:Vector2D|tuple) -> Vector2D|tuple:
+    def to_local(self, point:Vector2D|tuple) -> Vector2D|tuple:
         """
         Converts a point from world coordinates to local coordinates.
         
@@ -2605,7 +2607,7 @@ class Yui:
             return (tp.x, tp.y)
         else:
             raise TypeError("point must be a Vector2D or a tuple of two numbers.")
-    def to_world_matrix(self, point:Vector2D|tuple) -> Vector2D|tuple:
+    def to_world(self, point:Vector2D|tuple) -> Vector2D|tuple:
         """
         Converts a point from local coordinates to world coordinates.
         
@@ -2622,7 +2624,25 @@ class Yui:
             return (tp.x, tp.y)
         else:
             raise TypeError("point must be a Vector2D or a tuple of two numbers.")
-
+    def is_in_local_bounds(self, point:Vector2D|tuple) -> bool:
+        """
+        Checks if a point is within the local bounds of this Yui element.
+        
+        Args:
+            point (Vector2D|tuple): The point to check in local coordinates.
+        
+        Returns:
+            bool: True if the point is within the local bounds, False otherwise.
+        """
+        if isinstance(point, Vector2D):
+            x, y = point.x, point.y
+        elif isinstance(point, tuple) and len(point) == 2:
+            x, y = point
+        else:
+            raise TypeError("point must be a Vector2D or a tuple of two numbers.")
+        
+        bounds = self.local_bounds
+        return (bounds[0] <= x <= bounds[0] + bounds[2]) and (bounds[1] <= y <= bounds[1] + bounds[3])
     @property
     def local_bounds(self) -> tuple[float, float, float, float]:
         """
@@ -3149,7 +3169,19 @@ class Yui:
             graphics (Graphics): The Graphics object to draw on.
         """
         pass
-    
+    def is_interactable(self, point:Vector2D|tuple) -> bool:
+        """
+        Checks if this Yui element is interactable at the given point.
+        May be overridden by subclasses to implement custom interaction logic.
+        
+        Args:
+            point (Vector2D|tuple): The point to check in world coordinates.
+
+        
+        Returns:
+            bool: True if the element is interactable at the point, False otherwise.
+        """
+        return True
     
 class YuiRoot(Yui):
     def __init__(self):
@@ -3159,20 +3191,339 @@ class YuiRoot(Yui):
         The root element does not have a parent and is the top of the hierarchy.
         """
         super().__init__(parent=None)
+        self._pygame_root = 
+
+    
+    def yui_at_point(self, point:Vector2D|tuple, extends, exclude:list[Yui]=[], current:Yui=self) -> 'Yui':
+        """
+        Searches for a Yui element at the given point in world coordinates.
+        
+        Args:
+            point (Vector2D|tuple): The point in world coordinates to search for a Yui element.
+            extends (type): The type of Yui element to search for.
+            exclude (list[Yui], optional): A list of Yui elements to exclude from the search. Defaults to an empty list.
+            current (Yui, optional): The current Yui element being checked. Defaults to self.
+        
+        Returns:
+            Yui: The first Yui element found at the point that matches the specified type, or None if no such element is found.
+        """
+        local = current.to_local(point)
+        
+        # Check if a Yui has forced cutoff
+        if current.uses_graphics and current is not YuiRoot:
+            if not current.is_interactable(local):
+                return None
+        
+        # Check if a child is interactable (from last to first)
+        for child in reversed(current.children):
+            pointed = self.yui_at_point(point, extends, exclude, child)
+            if pointed is not None:
+                return pointed
+        
+        # Check if the current Yui is the searched type
+        if not isinstance(current, extends) and current not in exclude:
+            return None
+    
+        if not current.is_in_local_bounds(local):
+            return None
+        
+        if not current.is_interactable(local):
+            return None
+        
+        return current
     
     
     
         
     
 
-class Mouse():
-    pass
+class Mouse:
+    def __init__(self, root:YuiRoot):
+        """
+        Initializes a Mouse object that can be used to track mouse events.
+        
+        Args:
+            root (YuiRoot): The root Yui element to which the mouse events will be related.
+        """
+        if root is None or not isinstance(root, YuiRoot):
+            raise TypeError("root must be an instance of YuiRoot.")
 
-class MouseEvent():
-    pass
+        self._root = root
+        self._pressed:'Mouse.Listener', _last_pressed:'Mouse.Listener' = None, None
+        self._start:'Mouse.Event' = None
+        self._last_pressed_left:'Mouse.Event' = None
+        self._last_pressed_right:'Mouse.Event' = None
+        self._last_pressed_middle:'Mouse.Event' = None
+        self._last_pressed_alt:'Mouse.Event' = None
+        self._last:'Mouse.Event', self._current:'Mouse.Event' = None, None
+class MouseEvent:
+    LEFT = 0x1
+    RIGHT = 0x2
+    MIDDLE = 0x4
+    ALT = 0x8
+    WHEEL = 0x10
+    PRESSED = 0x20
+    RELEASED = 0x40
+    BUTTON_MASK = LEFT | RIGHT | MIDDLE | ALT
+    TYPE_MASK = WHEEL | PRESSED | RELEASED
 
-class MouseListener():
-    pass
+    def __init__(self, mouse:Mouse, point:Vector2D|tuple, scroll:int, event:int, down:int, timestamp:float=None):
+        """
+        Initializes a mouse event.
+        Args:
+            mouse (Mouse): The mouse object that generated the event.
+            point (Vector2D|tuple): The point where the event occurred.
+            button (str): The button that was pressed or released.
+            type (str): The type of the event (e.g., 'click', 'move').
+            timestamp (float): The time when the event occurred.
+        """
+        self.mouse = mouse
+        self.point = Vector2D(*point) if isinstance(point, tuple) else point
+        self.scroll = scroll
+        self.event = event
+        self.down = down
+        self.timestamp = time.time() if timestamp is None else timestamp
+    
+    @staticmethod
+    def from_event(last:MouseEvent, point:Vector2D|tuple, scroll:int, event:int, timestamp:float=None) -> 'MouseEvent':
+        """
+        Creates a new MouseEvent from the last event and the current point.
+        Args:
+            last (MouseEvent): The last mouse event.
+            point (Vector2D|tuple): The current point where the event occurred.
+            scroll (int): The scroll value for the event.
+            event (int): The type of the event (e.g., MouseEvent.PRESSED, MouseEvent.RELEASED).
+            timestamp (float, optional): The time when the event occurred. Defaults to None, which uses the current time.
+        Returns:
+            MouseEvent: A new MouseEvent instance.
+        """
+        mouse_event = MouseEvent(last.mouse, Vector2D(x, y), scroll, last.event, last.down, timestamp)
+        if (event & MouseEvent.MouseEvent.PRESSED) != 0:
+            mouse_event.down = last.down | (event & MouseEvent.BUTTON_MASK)
+        elif (event & MouseEvent.MouseEvent.RELEASED) != 0:
+            mouse_event.down = last.down & ~(event & MouseEvent.BUTTON_MASK)
+        
+        return mouse_event
+
+    # --- Event Type Properties ---
+    @property
+    def is_pressed_event(self) -> bool:
+        """
+        Checks if the mouse event is a pressed event.
+        
+        Returns:
+            bool: True if the event is a pressed event, False otherwise.
+        """
+        return (self.event & MouseEvent.PRESSED) != 0
+    @property
+    def is_released_event(self) -> bool:
+        """
+        Checks if the mouse event is a released event.
+        
+        Returns:
+            bool: True if the event is a released event, False otherwise.
+        """
+        return (self.event & MouseEvent.RELEASED) != 0
+    @property
+    def is_wheel_event(self) -> bool:
+        """
+        Checks if the mouse event is a wheel event.
+        
+        Returns:
+            bool: True if the event is a wheel event, False otherwise.
+        """
+        return (self.event & MouseEvent.WHEEL) != 0
+    @property
+    def is_move_event(self) -> bool:
+        """
+        Checks if the mouse event is a move event.
+        
+        Returns:
+            bool: True if the event is a move event, False otherwise.
+        """
+        return (self.event & MouseEvent.TYPE_MASK) == 0 and self.scroll == 0
+
+    # --- Event Button Properties ---
+    @property
+    def is_left_event(self) -> bool:
+        """
+        Checks if the mouse event is a left button event.
+        
+        Returns:
+            bool: True if the event is a left button event, False otherwise.
+        """
+        return (self.event & MouseEvent.LEFT) != 0
+    @property
+    def is_right_event(self) -> bool:
+        """
+        Checks if the mouse event is a right button event.
+        
+        Returns:
+            bool: True if the event is a right button event, False otherwise.
+        """
+        return (self.event & MouseEvent.RIGHT) != 0
+    @property
+    def is_middle_event(self) -> bool:
+        """
+        Checks if the mouse event is a middle button event.
+        
+        Returns:
+            bool: True if the event is a middle button event, False otherwise.
+        """
+        return (self.event & MouseEvent.MIDDLE) != 0
+    @property
+    def is_alt_event(self) -> bool:
+        """
+        Checks if the mouse event is an alt button event.
+        
+        Returns:
+            bool: True if the event is an alt button event, False otherwise.
+        """
+        return (self.event & MouseEvent.ALT) != 0
+
+    # --- Buttons Down ---
+    @property
+    def is_left_down(self) -> bool:
+        """
+        Checks if the left mouse button is currently down.
+        
+        Returns:
+            bool: True if the left button is down, False otherwise.
+        """
+        return (self.down & MouseEvent.LEFT) != 0
+    @property
+    def is_right_down(self) -> bool:
+        """
+        Checks if the right mouse button is currently down.
+        
+        Returns:
+            bool: True if the right button is down, False otherwise.
+        """
+        return (self.down & MouseEvent.RIGHT) != 0
+    @property
+    def is_middle_down(self) -> bool:
+        """
+        Checks if the middle mouse button is currently down.
+        Returns:
+            bool: True if the middle button is down, False otherwise.
+        """
+        return (self.down & MouseEvent.MIDDLE) != 0
+    @property
+    def is_alt_down(self) -> bool:
+        """
+        Checks if the alt mouse button is currently down.
+        Returns:
+            bool: True if the alt button is down, False otherwise.
+        """
+        return (self.down & MouseEvent.ALT) != 0
+    @property
+    def any_button_down(self) -> bool:
+        """
+        Checks if any mouse button is currently down.
+        
+        Returns:
+            bool: True if any button is down, False otherwise.
+        """
+        return self.down != 0
+
+    # --- Misc Properties ---
+    @property
+    def local(self, yui:Yui) -> MouseEvent:
+        """
+        Gets the local mouse event, which is the same as this event.
+        
+        Returns:
+            MouseEvent: The local mouse event.
+        """
+        local_point = yui.to_local(self.point)
+        return MouseEvent(self.mouse, local_point, self.scroll, self.event, self.down, self.timestamp)
+    def dist_sq(self, point:Vector2D|tuple = Vector2D(0, 0)) -> float:
+        """
+        Calculates the squared distance from the mouse event point to another point.
+        
+        Args:
+            point (Vector2D|tuple): The point to calculate the distance to.
+        
+        Returns:
+            float: The squared distance from the mouse event point to the given point.
+        """
+        if isinstance(point, Vector2D):
+            return self.point.distance_sq(point)
+        elif isinstance(point, tuple) and len(point) == 2:
+            return self.point.distance_sq(Vector2D(*point))
+        else:
+            raise TypeError("point must be a Vector2D or a tuple of two numbers.")
+    def dist(self, point:Vector2D|tuple = Vector2D(0, 0)) -> float:
+        """
+        Calculates the distance from the mouse event point to another point.
+        
+        Args:
+            point (Vector2D|tuple): The point to calculate the distance to.
+        
+        Returns:
+            float: The distance from the mouse event point to the given point.
+        """
+        if isinstance(point, (Vector2D, tuple)):
+            return np.sqrt(self.dist_sq(point))
+        else:
+            raise TypeError("point must be a Vector2D or a tuple of two numbers.")
+
+    @property
+    def is_invalid(self) -> bool:
+        """
+        Checks if the mouse event is invalid.
+        
+        Returns:
+            bool: True if the event is invalid, False otherwise.
+        """
+        event_type = self.event & MouseEvent.TYPE_MASK
+        event_button = self.event & MouseEvent.BUTTON_MASK
+
+        # Multiple Types
+        if (event_type & (event_type - 1)) != 0:
+            return True
+
+        # Mouse button specified on mouse wheel
+        if event_type == MouseEvent.WHEEL and event_button != 0:
+            return True
+        
+        # Scroll not specified on mouse wheel event
+        if event_type == MouseEvent.WHEEL and self.scroll == 0:
+            return True
+        
+        # Scroll specified on mouse button event or mouse button not specified on mouse button event
+        if (event_type == MouseEvent.PRESSED or event_type == MouseEvent.RELEASED) and (self.scroll != 0 or event_button == 0):
+            return True
+
+        return False
+Mouse.Event = MouseEvent; del MouseEvent
+class MouseListener(ABC):
+    """
+    Abstract base class for mouse listeners.
+    Subclasses should implement the on_mouse_event method to handle mouse events.
+    """
+    @abstractmethod
+    def on_mouse_event(self, event:MouseEvent):
+        """
+        Abstract method to handle mouse events.
+        
+        Args:
+            event (MouseEvent): The mouse event to handle.
+        """
+        pass
+    @abstractmethod
+    def to_local(self, point:Vector2D) -> Vector2D:
+        """
+        All Yui implement this.
+        
+        Args:
+            point (Vector2D): The point in world coordinates.
+        
+        Returns:
+            Vector2D: The point in local coordinates.
+        """
+        pass
+Mouse.Listener = MouseListener; del MouseListener
 
 class Keyboard():
     pass
