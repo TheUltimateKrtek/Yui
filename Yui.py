@@ -2159,6 +2159,9 @@ class Yui:
         # --- Graphics ---
         self._graphics = None
         self._needs_graphics_rebuild = True
+        self._uses_graphics = False
+        self._width = 1
+        self._height = 1
         
         # --- Hierarchy ---
         self._parent = None
@@ -2169,113 +2172,376 @@ class Yui:
         self._visible = True
         self._enabled = True
 
+        # --- Debug ---
+        self._draw_time_self = 0.0
+        self._draw_time_subtree = 0.0
+
         self.set_parent(parent)
     
-    # --- Transform ---
+    def __getitem__(self, key:int|slice) -> 'Yui':
+        """
+        Gets a child Yui element by index or slice.
+        
+        Args:
+            key (int|slice): The index or slice to access.
+        
+        Returns:
+            Yui: The child Yui element(s).
+        """
+        if isinstance(key, int):
+            return self._children[key]
+        elif isinstance(key, slice):
+            return self._children[key]
+        else:
+            raise TypeError("key must be an integer or slice.")
+    def __setitem__(self, key:int, value:'Yui') -> None:
+        raise NotImplementedError("Setting children directly is not supported. Use add_child() instead.")
+    def __delitem__(self, key:int|slice) -> None:
+        """
+        Deletes a child Yui element by index.
+        Args:
+            key (int|slice): The index or slice to delete.
+        Raises:
+            TypeError: If key is not an integer or slice.
+        """
+        if isinstance(key, int):
+            if 0 <= key < len(self._children):
+                child = self._children[key]
+                child.set_parent(None)
+                del self._children[key]
+            else:
+                raise IndexError("Child index out of range.")
+        elif isinstance(key, slice):
+            for child in self._children[key]:
+                child.set_parent(None)
+            del self._children[key]
+        else:
+            raise TypeError("key must be an integer or slice.")
+    def __len__(self) -> int:
+        """
+        Returns the number of child Yui elements.
+        
+        Returns:
+            int: The number of children.
+        """
+        return len(self._children)
+    
     @property
     def x(self) -> float:
+        """
+        Gets the x coordinate of this Yui element.
+        
+        Returns:
+            float: The x coordinate.
+        """
         return self._x
     @x.setter
-    def x(self, value:float) -> None:
+    def x(self, value:float):
+        """
+        Sets the x coordinate of this Yui element.
+        
+        Args:
+            value (float): The new x coordinate.
+        """
+        last_x = self.x
         if not isinstance(value, (int, float)):
             raise TypeError("x must be a number.")
-        if self._x == value:
-            return
-        old_value = self._x
         self._x = value
         self._needs_local_matrix_update = True
-        self.on_transform_changed(old_value, self._y, self._r, self._sx, self._sy, self._ax, self._ay)
+        self.on_transform_changed(last_x, self.y, self.r, self.sx, self.sy, self.ax, self.ay)
     @property
     def y(self) -> float:
+        """
+        Gets the y coordinate of this Yui element.
+        
+        Returns:
+            float: The y coordinate.
+        """
         return self._y
     @y.setter
-    def y(self, value:float) -> None:
+    def y(self, value:float):
+        """
+        Sets the y coordinate of this Yui element.
+        
+        Args:
+            value (float): The new y coordinate.
+        """
+        last_y = self.y
         if not isinstance(value, (int, float)):
             raise TypeError("y must be a number.")
-        if self._y == value:
-            return
-        old_value = self._y
         self._y = value
         self._needs_local_matrix_update = True
-        self.on_transform_changed(self._x, old_value, self._r, self._sx, self._sy, self._ax, self._ay)
+        self.on_transform_changed(self.x, last_y, self.r, self.sx, self.sy, self.ax, self.ay)
     @property
     def r(self) -> float:
+        """
+        Gets the rotation of this Yui element in radians.
+        
+        Returns:
+            float: The rotation in radians.
+        """
         return self._r
     @r.setter
-    def r(self, value:float) -> None:
+    def r(self, value:float):
+        """
+        Sets the rotation of this Yui element in radians.
+        
+        Args:
+            value (float): The new rotation in radians.
+        """
+        last_r = self.r
         if not isinstance(value, (int, float)):
             raise TypeError("r must be a number.")
-        if self._r == value:
-            return
-        old_value = self._r
         self._r = value
         self._needs_local_matrix_update = True
-        self.on_transform_changed(self._x, self._y, old_value, self._sx, self._sy, self._ax, self._ay)
+        self.on_transform_changed(self.x, self.y, last_r, self.sx, self.sy, self.ax, self.ay)
     @property
     def sx(self) -> float:
+        """
+        Gets the x scale factor of this Yui element.
+        
+        Returns:
+            float: The x scale factor.
+        """
         return self._sx
     @sx.setter
-    def sx(self, value:float) -> None:
+    def sx(self, value:float):
+        """
+        Sets the x scale factor of this Yui element.
+        
+        Args:
+            value (float): The new x scale factor.
+        """
+        last_sx = self.sx
         if not isinstance(value, (int, float)):
             raise TypeError("sx must be a number.")
-        if self._sx == value:
-            return
-        old_value = self._sx
         self._sx = value
         self._needs_local_matrix_update = True
-        self.on_transform_changed(self._x, self._y, self._r, old_value, self._sy, self._ax, self._ay)
+        self.on_transform_changed(self.x, self.y, self.r, last_sx, self.sy, self.ax, self.ay)
     @property
     def sy(self) -> float:
+        """
+        Gets the y scale factor of this Yui element.
+        
+        Returns:
+            float: The y scale factor.
+        """
         return self._sy
     @sy.setter
-    def sy(self, value:float) -> None:
+    def sy(self, value:float):
+        """
+        Sets the y scale factor of this Yui element.
+        
+        Args:
+            value (float): The new y scale factor.
+        """
+        last_sy = self.sy
         if not isinstance(value, (int, float)):
             raise TypeError("sy must be a number.")
-        if self._sy == value:
-            return
-        old_value = self._sy
         self._sy = value
         self._needs_local_matrix_update = True
-        self.on_transform_changed(self._x, self._y, self._r, self._sx, old_value, self._ax, self._ay)
+        self.on_transform_changed(self.x, self.y, self.r, self.sx, last_sy, self.ax, self.ay)
     @property
     def ax(self) -> float:
+        """
+        Gets the x anchor point of this Yui element.
+        
+        Returns:
+            float: The x anchor point.
+        """
         return self._ax
     @ax.setter
-    def ax(self, value:float) -> None:
+    def ax(self, value:float):
+        """
+        Sets the x anchor point of this Yui element.
+        
+        Args:
+            value (float): The new x anchor point.
+        """
+        last_ax = self.ax
         if not isinstance(value, (int, float)):
             raise TypeError("ax must be a number.")
-        value = min(0, max(1, value))  # Clamp to [0, 1]
-        if self._ax == value:
-            return
-        old_value = self._ax
         self._ax = value
         self._needs_local_matrix_update = True
-        self.on_transform_changed(self._x, self._y, self._r, self._sx, self._sy, old_value, self._ay)
+        self.on_transform_changed(self.x, self.y, self.r, self.sx, self.sy, last_ax, self.ay)
     @property
     def ay(self) -> float:
+        """
+        Gets the y anchor point of this Yui element.
+        
+        Returns:
+            float: The y anchor point.
+        """
         return self._ay
     @ay.setter
-    def ay(self, value:float) -> None:
+    def ay(self, value:float):
+        """
+        Sets the y anchor point of this Yui element.
+        
+        Args:
+            value (float): The new y anchor point.
+        """
+        last_ay = self.ay
         if not isinstance(value, (int, float)):
             raise TypeError("ay must be a number.")
-        value = min(0, max(1, value))
-        if self._ay == value:
-            return
-        old_value = self._ay
         self._ay = value
         self._needs_local_matrix_update = True
-        self.on_transform_changed(self._x, self._y, self._r, self._sx, self._sy, self._ax, old_value)
+        self.on_transform_changed(self.x, self.y, self.r, self.sx, self.sy, self.ax, last_ay)
+    @property
+    def position(self) -> Vector2D:
+        """
+        Gets the position of this Yui element as a Vector2D.
+        
+        Returns:
+            Vector2D: The position of the element.
+        """
+        return Vector2D(self._x, self._y)
+    @position.setter
+    def position(self, value:Vector2D|tuple):
+        """
+        Sets the position of this Yui element.
+        
+        Args:
+            value (Vector2D|tuple): The new position as a Vector2D or a tuple (x, y).
+        
+        Raises:
+            TypeError: If value is not a Vector2D or a tuple of two numbers.
+        """
+        last_position = self.position
+        if isinstance(value, Vector2D):
+            self._x, self._y = value.x, value.y
+        elif isinstance(value, tuple) and len(value) == 2 and all(isinstance(v, (int, float)) for v in value):
+            self._x, self._y = value
+        else:
+            raise TypeError("position must be a Vector2D or a tuple of two numbers.")
+        self._needs_local_matrix_update = True
+        self.on_transform_changed(last_position.x, last_position.y, self.r, self.sx, self.sy, self.ax, self.ay)
+    @property
+    def rotation(self) -> float:
+        """
+        Gets the rotation of this Yui element in radians.
+        
+        Returns:
+            float: The rotation in radians.
+        """
+        return self._r
+    @rotation.setter
+    def rotation(self, value:float):
+        """
+        Sets the rotation of this Yui element in radians.
+        
+        Args:
+            value (float): The new rotation in radians.
+        
+        Raises:
+            TypeError: If value is not a number.
+        """
+        last_rotation = self.rotation
+        if not isinstance(value, (int, float)):
+            raise TypeError("rotation must be a number.")
+        self._r = value
+        self._needs_local_matrix_update = True
+        self.on_transform_changed(self.x, self.y, last_rotation, self.sx, self.sy, self.ax, self.ay)
+    @property
+    def scale(self) -> Vector2D:
+        """
+        Gets the scale of this Yui element as a Vector2D.
+        
+        Returns:
+            Vector2D: The scale of the element.
+        """
+        return Vector2D(self._sx, self._sy)
+    @scale.setter
+    def scale(self, value:Vector2D|tuple):
+        """
+        Sets the scale of this Yui element.
+        
+        Args:
+            value (Vector2D|tuple): The new scale as a Vector2D or a tuple (sx, sy).
+        
+        Raises:
+            TypeError: If value is not a Vector2D or a tuple of two numbers.
+        """
+        last_scale = self.scale
+        if isinstance(value, Vector2D):
+            self._sx, self._sy = value.x, value.y
+        elif isinstance(value, tuple) and len(value) == 2 and all(isinstance(v, (int, float)) for v in value):
+            self._sx, self._sy = value
+        else:
+            raise TypeError("scale must be a Vector2D or a tuple of two numbers.")
+        self._needs_local_matrix_update = True
+        self.on_transform_changed(self.x, self.y, self.r, last_scale.x, last_scale.y, self.ax, self.ay)
+    @property
+    def anchor(self) -> Vector2D:
+        """
+        Gets the anchor point of this Yui element as a Vector2D.
+        
+        Returns:
+            Vector2D: The anchor point of the element.
+        """
+        return Vector2D(self._ax, self._ay)
+    @anchor.setter
+    def anchor(self, value:Vector2D|tuple):
+        """
+        Sets the anchor point of this Yui element.
+        
+        Args:
+            value (Vector2D|tuple): The new anchor point as a Vector2D or a tuple (ax, ay).
+        
+        Raises:
+            TypeError: If value is not a Vector2D or a tuple of two numbers.
+        """
+        last_anchor = self.anchor
+        if isinstance(value, Vector2D):
+            self._ax, self._ay = value.x, value.y
+        elif isinstance(value, tuple) and len(value) == 2 and all(isinstance(v, (int, float)) for v in value):
+            self._ax, self._ay = value
+        else:
+            raise TypeError("anchor must be a Vector2D or a tuple of two numbers.")
+        self._needs_local_matrix_update = True
+        self.on_transform_changed(self.x, self.y, self.r, self.sx, self.sy, last_anchor.x, last_anchor.y)
     
-    # --- Matrix Cache & Flags ---
-    @property
-    def needs_local_matrix_update(self) -> bool:
-        return self._needs_local_matrix_update
-    @property
-    def needs_world_matrix_update(self) -> bool:
-        if self.needs_world_matrix_update:
-            return True
-        if self._parent is not None:
-            return self._parent.needs_world_matrix_update
+    # --- Matrix ---
+    def _update_matrices(self):
+        changed = False
+        last_local_matrix = self._local_matrix
+        last_local_matrix_inverted = self._local_inverted_matrix
+        last_world_matrix = self._world_matrix
+        last_world_inverted_matrix = self._world_inverted_matrix
+
+        if self._needs_local_matrix_update:
+            self._local_matrix = Matrix2D.identity()
+            self._local_matrix.translate(self._x, self._y)
+            self._local_matrix.rotate(self._r)
+            self._local_matrix.scale(self._sx, self._sy)
+            self._local_matrix.translate(-self._ax, -self._ay)
+            self._local_inverted_matrix = self._local_matrix.invert()
+            self._needs_local_matrix_update = False
+            changed = True
+        if self._needs_world_matrix_update:
+            if self._parent is None:
+                self._world_matrix = self._local_matrix
+                self._world_inverted_matrix = self._local_inverted_matrix
+            else:
+                self._parent._update_matrices()
+                self._world_matrix = self._parent.world_matrix.multiply(self._local_matrix)
+                self._world_inverted_matrix = self._world_matrix.invert()
+            changed = True
+            self._needs_world_matrix_update = False
+        if self.on_matrix_updated(self.)
+
+    def _has_ancestor_requested_world_matrix_update(self) -> bool:
+        """
+        Checks if any ancestor has requested a world matrix update.
+        
+        Returns:
+            bool: True if an ancestor has requested a world matrix update, False otherwise.
+        """
+        current = self._parent
+        while current is not None:
+            if current._needs_world_matrix_update:
+                return True
+            current = current._parent
         return False
     @property
     def local_matrix(self) -> Matrix2D:
@@ -2285,8 +2551,9 @@ class Yui:
         Returns:
             Matrix2D: The local transformation matrix.
         """
-            
-        return self._update_matrices()._local_matrix
+        if self._needs_local_matrix_update:
+            self._update_matrices()
+        return self._local_matrix
     @property
     def world_matrix(self) -> Matrix2D:
         """
@@ -2295,8 +2562,9 @@ class Yui:
         Returns:
             Matrix2D: The world transformation matrix.
         """
-        
-        return self._update_matrices()._world_matrix
+        if self._needs_world_matrix_update or self._has_ancestor_requested_world_matrix_update:
+            self._update_matrices()
+        return self._world_matrix
     @property
     def local_inverted_matrix(self) -> Matrix2D:
         """
@@ -2305,8 +2573,9 @@ class Yui:
         Returns:
             Matrix2D: The inverted local transformation matrix.
         """
-        
-        return self._update_matrices()._local_inverted_matrix
+        if self._needs_local_matrix_update:
+            self._update_matrices()
+        return self._local_inverted_matrix
     @property
     def world_inverted_matrix(self) -> Matrix2D:
         """
@@ -2315,74 +2584,67 @@ class Yui:
         Returns:
             Matrix2D: The inverted world transformation matrix.
         """
-        
-        return self._update_matrices()._world_inverted_matrix
-    
-    def request_local_matrix_update(self) -> None:
-        """
-        Marks the local matrix as needing an update.
-        This should be called whenever a property affecting the local matrix changes.
-        """
-        self._needs_local_matrix_update = True
-        self._needs_world_matrix_update = True
-    def request_world_matrix_update(self) -> None:
-        """
-        Marks the world matrix as needing an update.
-        This should be called whenever a property affecting the world matrix changes.
-        """
-        self._needs_world_matrix_update = True
-    def _update_matrices(self) -> 'Yui':
-        """
-        Updates the local and world matrices if they are marked as needing an update.
-        This should be called before rendering or any operations that depend on the matrices.
-        """
-        updated = False
-        last_local_matrix = self._local_matrix.copy()
-        last_world_matrix = self._world_matrix.copy()
-        last_inverted_local_matrix = self._local_inverted_matrix.copy()
-        last_inverted_world_matrix = self._world_inverted_matrix.copy()
-        
-        if self.needs_local_matrix_update:
-            self._local_matrix = Matrix2D.identity().translate(self._x, self._y).rotate(self._r).scale(self._sx, self._sy)
-            self._local_inverted_matrix = self._local_matrix.invert()
-            self._needs_local_matrix_update = False
-            self._needs_world_matrix_update = True
-            updated = True
-        if self.needs_world_matrix_update:
-            if self.parent is not None:
-                self.parent._update_matrices()
-                self._world_matrix = self._parent.world_matrix @ self._local_matrix
-            else:
-                self._world_matrix = self._local_matrix.copy()
-            self._world_inverted_matrix = self._world_matrix.invert()
-            self._needs_world_matrix_update = False
-            for child in self._children:
-                child.request_world_matrix_update()
-            updated = True
-        if updated:
-            self.on_matrix_updated(last_local_matrix, last_world_matrix, last_inverted_local_matrix, last_inverted_world_matrix)
-        return self
+        if self._needs_world_matrix_update or self._has_ancestor_requested_world_matrix_update:
+            self._update_matrices()
+        return self._world_inverted_matrix
 
-    # --- Graphics ---
-    # TODO: Implement graphics
-    def draw(self, graphics:Graphics) -> None:
+    def to_local_matrix(self, point:Vector2D|tuple) -> Vector2D|tuple:
         """
-        Draws this Yui element using the provided Graphics object.
+        Converts a point from world coordinates to local coordinates.
         
         Args:
-            graphics (Graphics): The Graphics object to draw with.
+            point (Vector2D|tuple): The point in world coordinates.
+        
+        Returns:
+            Vector2D|tuple: The point in local coordinates.
         """
-        self._update_matrices()
-        with self._graphics.push_matrix():
-            self._graphics.apply_matrix(self.world_matrix)
-            self.on_draw(self._graphics)
-    def _rebuild_graphics(self) -> None:
+        if isinstance(point, Vector2D):
+            return self.world_inverted_matrix.transform(point)
+        elif isinstance(point, tuple) and len(point) == 2:
+            tp = self.world_inverted_matrix.transform(Vector2D(*point))
+            return (tp.x, tp.y)
+        else:
+            raise TypeError("point must be a Vector2D or a tuple of two numbers.")
+    def to_world_matrix(self, point:Vector2D|tuple) -> Vector2D|tuple:
         """
-        Rebuilds the graphics representation of this Yui element.
-        This should be overridden by subclasses to define how the element should be drawn.
+        Converts a point from local coordinates to world coordinates.
+        
+        Args:
+            point (Vector2D|tuple): The point in local coordinates.
+        
+        Returns:
+            Vector2D|tuple: The point in world coordinates.
         """
-        pass
-        # TODO
+        if isinstance(point, Vector2D):
+            return self.world_matrix.transform(point)
+        elif isinstance(point, tuple) and len(point) == 2:
+            tp = self.world_matrix.transform(Vector2D(*point))
+            return (tp.x, tp.y)
+        else:
+            raise TypeError("point must be a Vector2D or a tuple of two numbers.")
+
+    @property
+    def local_bounds(self) -> tuple[float, float, float, float]:
+        """
+        Gets the local bounds of this Yui element.
+        
+        Returns:
+            tuple: A tuple (x, y, width, height) representing the local bounds.
+        """
+        return (self._x - self._ax * self._sx, self._y - self._ay * self._sy, self._width * self._sx, self._height * self._sy)
+    @property
+    def world_bounds(self) -> tuple[float, float, float, float]:
+        """
+        Gets the world bounds of this Yui element.
+        
+        Returns:
+            tuple: A tuple (x, y, width, height) representing the world bounds.
+        """
+        if self._needs_world_matrix_update or self._has_ancestor_requested_world_matrix_update:
+            self._update_matrices()
+        local_bounds = self.local_bounds
+        transformed = self.world_matrix.transform_rect(local_bounds)
+        return (transformed.x, transformed.y, transformed.width, transformed.height)
 
     # --- Hierarchy ---
     @property
@@ -2425,6 +2687,15 @@ class Yui:
         """
         return isinstance(self, YuiRoot)
     @property
+    def is_leaf(self) -> bool:
+        """
+        Checks if this Yui element is a leaf (has no children).
+        
+        Returns:
+            bool: True if this element has no children, False otherwise.
+        """
+        return len(self._children) == 0
+    @property
     def depth(self) -> int:
         """
         Gets the level of this Yui element in the hierarchy.
@@ -2438,16 +2709,15 @@ class Yui:
             level += 1
             current = current._parent
         return level
-    # TODO: Height
     @property
-    def child_count(self) -> int:
+    def height(self) -> int:
         """
-        Gets the number of children this Yui element has.
+        Gets the height of this Yui element.
         
         Returns:
-            int: The number of child elements.
+            float: The height of the element, which is always 0 for a base Yui element.
         """
-        return len(self._children)
+        return 0 if self.is_leaf else max(child.height for child in self._children) + 1
     @property
     def ancestors(self) -> list['Yui']:
         """
@@ -2469,7 +2739,6 @@ class Yui:
     def is_descendant_of(self, other: 'Yui') -> bool:
         return other in self.ancestors
     
-
     def set_parent(self, parent: 'Yui', index:int=None):
         if self._destroyed or isinstance(self, YuiRoot) or (parent is not None and not parent.is_destroyed):
             return
@@ -2511,7 +2780,269 @@ class Yui:
                     old_parent.on_child_removed(self, old_index)
                     self.on_parent_set(self._parent)
                     self._parent.on_child_added(self, new_index)
+    def add_child(self, child:'Yui', index:int=None) -> None:
+        """
+        Adds a child Yui element to this Yui element.
+        
+        Args:
+            child (Yui): The child element to add.
+            index (int, optional): The index at which to add the child. Defaults to None, which adds at the end.
+        
+        Raises:
+            TypeError: If child is not an instance of Yui.
+            RuntimeError: If the child cannot be added due to hierarchy constraints.
+        """
+        if not isinstance(child, Yui):
+            raise TypeError("child must be an instance of Yui.")
+        if child.is_destroyed:
+            raise RuntimeError("Cannot add a destroyed Yui element as a child.")
+        if self._destroyed or isinstance(self, YuiRoot):
+            raise RuntimeError("Cannot add children to a destroyed or root Yui element.")
+        
+        if index is None:
+            index = len(self._children)
+        else:
+            index = max(0, min(len(self._children), index))
+        
+        if not self.can_child_be_added(child, index):
+            raise RuntimeError("Cannot add this child to the parent Yui element.")
+        
+        child.set_parent(self, index)
+    def add_children(self, children:list['Yui'], index:int=None) -> None:
+        """
+        Adds multiple child Yui elements to this Yui element.
+        
+        Args:
+            children (list[Yui]): A list of child elements to add.
+            index (int, optional): The index at which to add the children. Defaults to None, which adds at the end.
+        
+        Raises:
+            TypeError: If any child is not an instance of Yui.
+            RuntimeError: If any child cannot be added due to hierarchy constraints.
+        """
+        if not isinstance(children, list) or not all(isinstance(child, Yui) for child in children):
+            raise TypeError("children must be a list of Yui instances.")
+        if self._destroyed or isinstance(self, YuiRoot):
+            raise RuntimeError("Cannot add children to a destroyed or root Yui element.")
+        
+        for child in children:
+            if child.is_destroyed:
+                raise RuntimeError("Cannot add a destroyed Yui element as a child.")
+        
+        if index is None:
+            index = len(self._children)
+        else:
+            index = max(0, min(len(self._children), index))
+        
+        for child in children:
+            self.add_child(child, index)
+
+    # --- Graphics ---
+    @property
+    def graphics(self) -> 'Graphics':
+        """
+        Gets the graphics object associated with this Yui element.
+        
+        Returns:
+            Graphics: The graphics object, or None if not set.
+        """
+        return self._graphics
+    @property
+    def uses_graphics(self) -> bool:
+        """
+        Checks if this Yui element uses graphics.
+        
+        Returns:
+            bool: True if the element uses graphics, False otherwise.
+        """
+        return self._uses_graphics
+    @uses_graphics.setter
+    def uses_graphics(self, value:bool):
+        """
+        Sets whether this Yui element uses graphics.
+        
+        Args:
+            value (bool): True to enable graphics, False to disable.
+        """
+        if not isinstance(value, bool):
+            raise TypeError("uses_graphics must be a boolean.")
+        if self._uses_graphics != value:
+            self._uses_graphics = value
+            if value:
+                self._needs_graphics_rebuild = True
+            else:
+                self._graphics = None
+                self._needs_graphics_rebuild = False
     
+    @property
+    def width(self) -> float:
+        """
+        Gets the width of this Yui element.
+        
+        Returns:
+            float: The width of the element.
+        """
+        return self._width
+    @width.setter
+    def width(self, value:float):
+        """
+        Sets the width of this Yui element.
+        
+        Args:
+            value (float): The new width.
+        
+        Raises:
+            TypeError: If value is not a number.
+        """
+        if not isinstance(value, (int, float)):
+            raise TypeError("width must be a number.")
+        self._width = value
+        self._needs_graphics_rebuild = True
+    @property
+    def height(self) -> float:
+        """
+        Gets the height of this Yui element.
+        
+        Returns:
+            float: The height of the element.
+        """
+        return self._height
+    @height.setter
+    def height(self, value:float):
+        """
+        Sets the height of this Yui element.
+        
+        Args:
+            value (float): The new height.
+        
+        Raises:
+            TypeError: If value is not a number.
+        """
+        if not isinstance(value, (int, float)):
+            raise TypeError("height must be a number.")
+        self._height = value
+        self._needs_graphics_rebuild = True
+    @property
+    def size(self) -> Vector2D:
+        """
+        Gets the size of this Yui element as a Vector2D.
+        
+        Returns:
+            Vector2D: The size of the element.
+        """
+        return Vector2D(self._width, self._height)
+    @size.setter
+    def size(self, value:Vector2D|tuple):
+        """
+        Sets the size of this Yui element.
+        
+        Args:
+            value (Vector2D|tuple): The new size as a Vector2D or a tuple (width, height).
+        
+        Raises:
+            TypeError: If value is not a Vector2D or a tuple of two numbers.
+        """
+        if isinstance(value, Vector2D):
+            self._width, self._height = value.x, value.y
+            if self._uses_graphics:
+                self._needs_graphics_rebuild = True
+        elif isinstance(value, tuple) and len(value) == 2 and all(isinstance(v, (int, float)) for v in value):
+            self._width, self._height = value
+            if self._uses_graphics:
+                self._needs_graphics_rebuild = True
+        else:
+            raise TypeError("size must be a Vector2D or a tuple of two numbers.")
+
+    def _rebuild_graphics(self):
+        """
+        Rebuilds the graphics for this Yui element.
+        This method should be overridden by subclasses to implement custom graphics rendering.
+        """
+        if not self._uses_graphics:
+            return
+        if self._destroyed:
+            return
+        if not self._needs_graphics_rebuild:
+            return
+        self._graphics = Graphics(self._width, self._height)
+        self._needs_graphics_rebuild = False
+    def draw(self, graphics:Graphics):
+        """
+        Draws this Yui element using the provided Graphics object.
+        
+        Args:
+            graphics (Graphics): The Graphics object to draw on.
+        
+        Raises:
+            RuntimeError: If this Yui element does not use graphics.
+        """
+        if self._destroyed:
+            return
+        
+        if self.uses_graphics:
+            debug_time_start = time.time()
+            self._rebuild_graphics()
+            self.on_draw(self._graphics)
+
+            self._draw_time_self = time.time() - debug_time_start
+
+            for child in self._children:
+                child.draw(graphics)
+
+            with graphics.push_matrix():
+                graphics.transform(self.local_matrix)
+                graphics.draw(self._graphics)
+            
+            self._draw_time_subtree = time.time() - debug_time_start
+        else:
+            debug_time_start = time.time()
+            with graphics.push_matrix():
+                graphics.transform(self.local_matrix)
+                self.on_draw(graphics)
+            
+                self._draw_time_self = time.time() - debug_time_start
+
+                for child in self._children:
+                    child.draw(graphics)
+                
+            self._draw_time_subtree = time.time() - debug_time_start
+
+    # --- Debug ---
+    def print_tree(self):
+        """
+        Prints the hierarchy of this Yui element and its children.
+        This is useful for debugging the structure of the Yui elements.
+        """
+        indent = ' ' * (self.depth * 2)
+        print(f"{indent}{self.__class__.__name__} (x={self.x}, y={self.y}, r={self.r}, sx={self.sx}, sy={self.sy})")
+        for child in self.children:
+            child.print_tree()
+    def draw_bounds(self, graphics:Graphics):
+        """
+        Draws the bounds of this Yui element for debugging purposes.
+        
+        Args:
+            graphics (Graphics): The Graphics object to draw on.
+        """
+        if self._destroyed:
+            return
+        
+        name = self.__class__.__name__
+        bounds = self.world_bounds
+        # Hue based on depth
+        color = Color.from_hue(self.depth / 10.0) # Normalize depth to a hue value
+
+        graphics.fill_color = Color(0, 0, 0, 0) # Transparent fill for bounds
+        graphics.stroke_color = color # Stroke color based on depth
+        graphics.rect_mode = 'corners' # Center mode for bounds
+        graphics.rect(bounds[0], bounds[1], bounds[2], bounds[3])
+
+        graphics.fill_color = color
+        graphics.text_size = 12
+        graphics.text_align = 0, 0 # Align top left
+        graphics.text(name, bounds[0] + 2, bounds[1] + 2) # Draw name at top left of bounds
+        
+
     # --- Flags ---
     @property
     def is_destroyed(self) -> bool:
@@ -2532,134 +3063,92 @@ class Yui:
         self._parent = None
 
     # --- Callbacks ---
-    def on_transform_changed(self) -> None:
+    def on_transform_changed(self, last_x:float, last_y:float, last_r:float, last_sx:float, last_sy:float, last_ax:float, last_ay) -> None:
         """
         Callback for when the transformation of this Yui element changes.
         This can be overridden by subclasses to perform custom actions.
         """
         pass
-    def on_matrix_updated(self) -> None:
+    def on_matrix_updated(self, local_matrix:Matrix2D, world_matrix:Matrix2D) -> None:
         """
         Callback for when the transformation matrices are updated.
         This can be overridden by subclasses to perform custom actions.
         """
         pass
-    def on_destroyed(self):
-        pass
-    def on_child_destroyed(self):
-        pass
-    def can_child_be_added(self, child:'Yui', index:int) -> bool:
+    def on_parent_set(self, parent:Yui) -> None:
         """
-        Checks if the child can be added.
-
+        Callback for when the parent of this Yui element is set.
+        This can be overridden by subclasses to perform custom actions.
+        
         Args:
-            child (Yui): The child to be added.
-            index (int): The index to be added to.
-
-        Returns:
-            bool: True if the child can be added, False otherwise.
+            parent (Yui): The new parent element.
         """
-        # Default value
-        return True
-    def on_child_added(self, child:'Yui', index:int) -> None:
+        pass
+    def on_parent_removed(self, old_parent:Yui) -> None:
         """
-        Callback for after the child has been added.
+        Callback for when the parent of this Yui element is removed.
         This can be overridden by subclasses to perform custom actions.
 
         Args:
-            child (Yui): The child to be added.
-            index (int): The index to be added to.
+            old_parent (Yui): The old parent element that was removed.
         """
         pass
-    def can_child_be_removed(self, child:'Yui', index:int) -> bool:
+    def on_child_added(self, child:Yui, index:int) -> None:
         """
-        Checks if the child can be removed.
-
-        Args:
-            child (Yui): The child to be removed.
-            index (int): The index to be removed from.
-
-        Returns:
-            bool: True if the child can be removed, False otherwise.
-        """
-        # Default value
-        return True
-    def on_child_removed(self, child:'Yui', index:int) -> None:
-        """
-        Callback for after the child has been removed.
+        Callback for when a child Yui element is added.
         This can be overridden by subclasses to perform custom actions.
 
         Args:
-            child (Yui): The child to be removed.
-            index (int): The index to be removed from.
+            child (Yui): The child element that was added.
+            index (int): The index at which the child was added.
         """
         pass
-    def can_child_be_moved(self, child:'Yui', index_from:int, index_to:int) -> bool:
+    def on_child_removed(self, child:Yui, index:int) -> None:
         """
-        Callback for after the child has been added.
+        Callback for when a child Yui element is removed.
         This can be overridden by subclasses to perform custom actions.
 
         Args:
-            child (Yui): The child to be added.
-            index_from (int): The index to be removed from.
-            index_to (int): The index to be added to.
+            child (Yui): The child element that was removed.
+            index (int): The index at which the child was removed.
         """
-        # Default value
-        return True
-    def on_child_moved(self, child:'Yui', index_from:int, index_to:int) -> None:
+        pass
+    def on_child_moved(self, child:Yui, old_index:int, new_index:int) -> None:
         """
-        Callback for after the child has been added.
+        Callback for when a child Yui element is moved.
         This can be overridden by subclasses to perform custom actions.
 
         Args:
-            child (Yui): The child to be added.
-            index_from (int): The index to be removed from.
-            index_to (int): The index to be added to.
+            child (Yui): The child element that was moved.
+            old_index (int): The previous index of the child.
+            new_index (int): The new index of the child.
         """
         pass
-    def can_parent_be_set(self, parent:'Yui') -> bool:
+    def on_child_destroyed(self, child:Yui, index:int) -> None:
         """
-        Checks if the parent can be set.
-
-        Args:
-            parent (Yui): The parent to be set.
-
-        Returns:
-            bool: True if the parent can be set, False otherwise.
-        """
-        # Default value
-        return True
-    def on_parent_set(self, parent:'Yui') -> None:
-        """
-        Callback for after the parent has been set.
+        Callback for when a child Yui element is destroyed.
         This can be overridden by subclasses to perform custom actions.
 
         Args:
-            parent (Yui): The parent to be set.
+            child (Yui): The child element that was destroyed.
+            index (int): The index of the child that was destroyed.
         """
         pass
-    def can_parent_be_removed(self, parent:'Yui') -> bool:
+    def on_destroyed(self) -> None:
         """
-        Checks if the parent can be removed.
-
-        Args:
-            parent (Yui): The parent to be removed.
-
-        Returns:
-            bool: True if the parent can be removed, False otherwise.
-        """
-        # Default value
-        return True
-    def on_parent_removed(self, parent:'Yui') -> None:
-        """
-        Callback for after the parent has been removed.
+        Callback for when this Yui element is destroyed.
         This can be overridden by subclasses to perform custom actions.
-
-        Args:
-            parent (Yui): The parent to be removed.
         """
         pass
-
+    def on_draw(self, graphics:Graphics) -> None:
+        """
+        Callback for when this Yui element is drawn.
+        This can be overridden by subclasses to perform custom drawing actions.
+        
+        Args:
+            graphics (Graphics): The Graphics object to draw on.
+        """
+        pass
     
     
 class YuiRoot(Yui):
@@ -2671,7 +3160,7 @@ class YuiRoot(Yui):
         """
         super().__init__(parent=None)
     
-        
+    
     
         
     
@@ -2696,3 +3185,5 @@ class KeyboardListener():
 
 root = YuiRoot()
 yui = Yui(root)
+root.print_tree()
+print(yui.parent, yui.root)
