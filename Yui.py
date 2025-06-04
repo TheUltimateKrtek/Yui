@@ -61,6 +61,19 @@ class Matrix2D(np.ndarray):
         if obj is None: return
         # No additional attributes for now
 
+    def __matmul__(self, other):
+        if isinstance(other, Vector2D):
+            result = super().__matmul__(other)
+            return Vector2D(result[0, 0], result[1, 0])
+        return super().__matmul__(other)
+    
+    def __rmatmul__(self, other):
+        if isinstance(other, Matrix2D):
+            result = other @ self
+            return Vector2D(result[0, 0], result[1, 0])
+        return NotImplemented
+
+    
     @classmethod
     def identity(cls):
         """
@@ -230,7 +243,8 @@ class Vector2D(np.ndarray):
         - swizzle: Returns a new Vector2D based on a pattern string.
     """
     def __new__(cls, x=0.0, y=0.0) -> 'Vector2D':
-        data = np.array([[x], [y], [1.0]], dtype=float)
+        ar = [[x], [y], [1.0]]
+        data = np.array(ar, dtype=float)
         obj = np.asarray(data).view(cls)
         return obj
 
@@ -394,7 +408,8 @@ class Vector2D(np.ndarray):
             NotImplemented: If the left operand is not a Matrix2D.
         """
         if isinstance(matrix, Matrix2D):
-            return (matrix @ self).view(Vector2D)
+            result = super().__matmul__(matrix)
+            return Vector2D(result[0, 0], result[0, 1])
         return NotImplemented
     
     def swizzle(self, pattern:str) -> 'Vector2D':
@@ -685,7 +700,7 @@ class Graphics(pygame.surface.Surface):
         Returns:
             Matrix2D: The last transformation matrix.
         """
-        return self._transfroms[-1]
+        return self._transforms[-1]
     
     
     @staticmethod
@@ -1515,7 +1530,7 @@ class Graphics(pygame.surface.Surface):
         Saves the current transformation matrix onto the stack.
         This allows for nested transformations.
         """
-        self._transforms.append(self._transfroms[-1].copy())
+        self._transforms.append(self._transforms[-1].copy())
         return self._MatrixContext(self)
     
     def pop_matrix(self) -> None:
@@ -1549,7 +1564,7 @@ class Graphics(pygame.surface.Surface):
         """
         if not isinstance(matrix, Matrix2D):
             raise TypeError("matrix must be an instance of Matrix2D.")
-        self.last_transform = self.last_transform @ matrix
+        self._transforms[-1] = self.last_transform @ matrix
     
     def translate(self, x:float, y:float) -> None:
         """
@@ -2515,7 +2530,7 @@ class Yui:
                 self._world_inverted_matrix = self._local_inverted_matrix
             else:
                 self._parent._update_matrices()
-                self._world_matrix = self._parent.world_matrix.multiply(self._local_matrix)
+                self._world_matrix = self._parent.world_matrix * self._local_matrix
                 self._world_inverted_matrix = self._world_matrix.invert()
             changed = True
             self._needs_world_matrix_update = False
@@ -2596,7 +2611,7 @@ class Yui:
             tp = self.world_inverted_matrix @ Vector2D(*point)
             return (tp.x, tp.y)
         else:
-            raise TypeError("point must be a Vector2D or a tuple of two numbers.")
+            raise TypeError(f"point must be a Vector2D or a tuple of two numbers (not {type(point)}).")
     def to_world(self, point:Vector2D|tuple) -> Vector2D|tuple:
         """
         Converts a point from local coordinates to world coordinates.
@@ -2608,9 +2623,9 @@ class Yui:
             Vector2D|tuple: The point in world coordinates.
         """
         if isinstance(point, Vector2D):
-            return self.world_matrix @ point
+            return self.world_matrix.transform(point)
         elif isinstance(point, tuple) and len(point) == 2:
-            tp = self.world_matrix @ Vector2D(*point)
+            tp = self.world_matrix.transform(Vector2D(*point))
             return (tp.x, tp.y)
         else:
             raise TypeError("point must be a Vector2D or a tuple of two numbers.")
@@ -3016,7 +3031,7 @@ class Yui:
         else:
             debug_time_start = time.time()
             with graphics.push_matrix():
-                graphics.transform(self.local_matrix)
+                graphics.apply_matrix(self.local_matrix)
                 self.on_draw(graphics)
             
                 self._draw_time_self = time.time() - debug_time_start
@@ -3260,6 +3275,7 @@ class YuiRoot(Yui):
         Returns:
             Yui: The first Yui element found at the point that matches the specified type, or None if no such element is found.
         """
+        
         if current is None:
             current = self
 
@@ -3285,6 +3301,8 @@ class YuiRoot(Yui):
         
         if not current.is_interactable(local):
             return None
+        
+        print(f"    Returned: {current}")
         
         return current
     def init(self):
@@ -3396,7 +3414,7 @@ class Mouse:
         button = MouseEvent.mouse_button(event.button)
         yui_event = MouseEvent.from_pygame(self, event)
         
-        pointed = self._root.yui_at_point(event.pos, Yui, exclude=[self._root])
+        pointed = self._root.yui_at_point(event.pos, MouseListener)
         if pointed is None:
             return
         
@@ -3467,13 +3485,12 @@ class Mouse:
         
         # Move
         if self._pressed is None:
-            pointed = self._root.yui_at_point(event.pos, Yui, exclude=[self._root])
+            pointed = self._root.yui_at_point(event.pos, MouseListener)
             if pointed is not None:
                 pointed.on_mouse_event(yui_event)
         # Drag
         else:
             self._pressed.on_mouse_event(yui_event)
-    
     def mouse_wheel(self, event:pygame.event.Event):
         yui_event = MouseEvent.from_pygame(event) if not self._current else MouseEvent.from_pygame_last(self._current, event)
         if self._current is None:
@@ -3482,7 +3499,7 @@ class Mouse:
         self._current = yui_event
 
         if self._pressed is None:
-            pointed = self._root.yui_at_point(event.pos, Yui, exclude=[self._root])
+            pointed = self._root.yui_at_point(event.pos, MouseListener)
             if pointed is not None:
                 pointed.on_mouse_event(yui_event)
         else:
@@ -3529,10 +3546,12 @@ class MouseEvent:
         Returns:
             MouseEvent: A new MouseEvent instance.
         """
-        mouse_event = MouseEvent(last.mouse, Vector2D(x, y), scroll, last.event, last.down, timestamp)
-        if (event & MouseEvent.MouseEvent.PRESSED) != 0:
+        if isinstance(point, tuple):
+            point = Vector2D(*point)
+        mouse_event = MouseEvent(last.mouse, scroll, last.event, last.down, timestamp)
+        if (event & MouseEvent.PRESSED) != 0:
             mouse_event.down = last.down | (event & MouseEvent.BUTTON_MASK)
-        elif (event & MouseEvent.MouseEvent.RELEASED) != 0:
+        elif (event & MouseEvent.RELEASED) != 0:
             mouse_event.down = last.down & ~(event & MouseEvent.BUTTON_MASK)
         
         return mouse_event
@@ -3595,7 +3614,8 @@ class MouseEvent:
         if not isinstance(event, pygame.event.Event):
             raise TypeError("event must be a pygame.event.Event.")
         
-        point = Vector2D(event.pos)
+        print(event.pos)
+        point = Vector2D(*event.pos)
         scroll = event.wheel if hasattr(event, 'wheel') else 0
         event_type = 0
         event_button = 0
@@ -4085,9 +4105,8 @@ class KeyboardListener(ABC):
         """
         pass
 
-print(type(Matrix2D() @ Vector2D()))
-
 root = YuiRoot()
 yui = Yui(root)
+print("Pointed:", root.yui_at_point((0, 2), Yui))
 root.print_tree()
 root.init()
