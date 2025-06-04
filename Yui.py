@@ -477,7 +477,15 @@ class Vector2D(np.ndarray):
         x_val = get_val(tokens[0])
         y_val = get_val(tokens[1])
         return Vector2D(x_val, y_val)
+    
+    def to_tuple(self):
+        """
+        Returns the (x, y) components of the vector as a tuple.
 
+        Returns:
+            tuple: A tuple (x, y) representing the vector components.
+        """
+        return (self.x, self.y)
     @classmethod
     def random(cls, low:float=0.0, high:float=1.0) -> 'Vector2D':
         """
@@ -1678,7 +1686,7 @@ class Graphics(pygame.surface.Surface):
 
         # Scale UV coordinates to texture size
         scaled_points = [
-            (uv[0] * texture.get_width(), uv[1] * texture.get_height())
+            (uv.x * texture.get_width(), uv.y * texture.get_height())
             for uv in uvs
         ]
 
@@ -1690,7 +1698,7 @@ class Graphics(pygame.surface.Surface):
 
         # Create a final surface for the polygon
         final_surface = pygame.Surface((self.get_width(), self.get_height()), pygame.SRCALPHA)
-        pygame.draw.polygon(final_surface, (255, 255, 255, 255), points)
+        pygame.draw.polygon(final_surface, (255, 255, 255, 255), [(p.x, p.y) for p in points])
         
         # Apply the mask to the polygon
         final_surface.blit(mask_surface, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
@@ -3021,11 +3029,11 @@ class Yui:
             self._draw_time_self = time.time() - debug_time_start
 
             for child in self._children:
-                child.draw(graphics)
+                child.draw(self._graphics)
 
             with graphics.push_matrix():
-                graphics.transform(self.local_matrix)
-                graphics.draw(self._graphics)
+                graphics.apply_matrix(self.local_matrix)
+                graphics.image(self._graphics, 0, 0)
             
             self._draw_time_subtree = time.time() - debug_time_start
         else:
@@ -4105,8 +4113,21 @@ class KeyboardListener(ABC):
         """
         pass
 
+class TestYui(Yui):
+    def __init__(self, parent, width=100, height=50):
+        super().__init__(parent)
+        self.width = width
+        self.height = height
+        self.uses_graphics = True
+
+    def on_draw(self, graphics: Graphics):
+        graphics.fill_color = Color(100, 200, 255)
+        graphics.stroke_color = Color(0, 0, 0)
+        graphics.rect_mode = 'corner'
+        graphics.rectangle(0, 0, self.width, self.height)
+
 root = YuiRoot()
-yui = Yui(root)
+yui = TestYui(root)
 print("Pointed:", root.yui_at_point((0, 2), Yui))
 root.print_tree()
 root.init()
