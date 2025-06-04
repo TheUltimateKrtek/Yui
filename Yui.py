@@ -4,6 +4,8 @@ from typing import Iterable, Iterator
 import numpy as np
 import pygame
 from abc import ABC, abstractmethod
+import colorsys
+import threading
 
 # TODO: Remove Surface as an argument to Graphics __new__
 
@@ -594,6 +596,23 @@ class Color(pygame.Color):
         else:
             raise ValueError("Hex string must be in format '#RRGGBB' or '#RRGGBBAA'.")
 
+    @classmethod
+    def from_hsb(cls, h: float=0, s: float=0, b: float=0, a: int = 255) -> 'Color':
+        """
+        Creates a Color instance from HSB/HSV values.
+
+        Args:
+            h (float): Hue, in range [0, 1].
+            s (float): Saturation, in range [0, 1].
+            b (float): Brightness/Value, in range [0, 1].
+            a (int, optional): Alpha component (0-255). Defaults to 255.
+
+        Returns:
+            Color: A new Color instance created from the HSB values.
+        """
+        r, g, b = colorsys.hsv_to_rgb(h, s, b)
+        return cls(int(r * 255), int(g * 255), int(b * 255), a)
+    
 # ---------------------
 # Graphics
 # ---------------------
@@ -659,8 +678,10 @@ class Graphics(pygame.surface.Surface):
         
         self._text_align_x = 0  # Horizontal text alignment (0: left, 1: right)
         self._text_align_y = 0  # Vertical text alignment (0: top, 1: bottom)
-        self._text_font = pygame.font.Font(None, 36)  # Default font
         self._text_size = 12  # Default text size
+        self._text_font_path = None
+        self._text_font = None
+        self.text_font = None
         self._text_leading = 0  # Default text leading (line spacing)
         
         self._curve_detail = 100  # Default curve detail for bezier curves
@@ -900,16 +921,16 @@ class Graphics(pygame.surface.Surface):
         self._text_align_x, self._text_align_y = align
     
     @property
-    def text_font(self) -> pygame.font.Font:
+    def text_font(self) -> str:
         """
         Returns the current font used for text rendering.
         
         Returns:
             pygame.font.Font: The current font object.
         """
-        return self._text_font
+        return self._text_font_path
     @text_font.setter
-    def text_font(self, font:pygame.font.Font) -> None:
+    def text_font(self, font:str) -> None:
         """
         Sets the font for text rendering.
         
@@ -921,7 +942,8 @@ class Graphics(pygame.surface.Surface):
         """
         if font is not None and not isinstance(font, pygame.font.Font):
             raise TypeError("text_font must be a pygame.font.Font instance or None.")
-        self._text_font = font if font is not None else pygame.font.Font(None, 36)
+        self._text_font_path = font
+        self._text_font = pygame.font.Font(self._text_font_path, self._text_size)
     
     @property
     def text_size(self) -> int:
@@ -946,8 +968,7 @@ class Graphics(pygame.surface.Surface):
         if not isinstance(size, int) or size < 1:
             raise ValueError("text_size must be an integer greater than or equal to 1.")
         self._text_size = size
-        if self._text_font is not None:
-            self._text_font = pygame.font.Font(self._text_font.get_name(), size)
+        self._text_font = pygame.font.Font(self._text_font_path, size)
     
     @property
     def text_leading(self) -> int:
@@ -2524,21 +2545,24 @@ class Yui:
         last_world_inverted_matrix = self._world_inverted_matrix
 
         if self._needs_local_matrix_update:
+            print(f"{type(self).__name__}: Local matrix update...")
             self._local_matrix = Matrix2D.identity()
-            self._local_matrix.translate(self._x, self._y)
-            self._local_matrix.rotate(self._r)
-            self._local_matrix.scale(self._sx, self._sy)
-            self._local_matrix.translate(-self._ax, -self._ay)
+            self._local_matrix = self._local_matrix.translate(self._x, self._y)
+            self._local_matrix = self._local_matrix.rotate(self._r)
+            self._local_matrix = self._local_matrix.scale(self._sx, self._sy)
+            self._local_matrix = self._local_matrix.translate(-self._ax, -self._ay)
             self._local_inverted_matrix = self._local_matrix.invert()
             self._needs_local_matrix_update = False
+            self._needs_world_matrix_update = True
             changed = True
-        if self._needs_world_matrix_update:
+        if self._needs_world_matrix_update or self._has_ancestor_requested_world_matrix_update():
+            print(f"{type(self).__name__}: World matrix update...")
             if self._parent is None:
                 self._world_matrix = self._local_matrix
                 self._world_inverted_matrix = self._local_inverted_matrix
             else:
                 self._parent._update_matrices()
-                self._world_matrix = self._parent.world_matrix * self._local_matrix
+                self._world_matrix = self._parent.world_matrix @ self._local_matrix
                 self._world_inverted_matrix = self._world_matrix.invert()
             changed = True
             self._needs_world_matrix_update = False
@@ -2566,8 +2590,7 @@ class Yui:
         Returns:
             Matrix2D: The local transformation matrix.
         """
-        if self._needs_local_matrix_update:
-            self._update_matrices()
+        self._update_matrices()
         return self._local_matrix
     @property
     def world_matrix(self) -> Matrix2D:
@@ -2577,8 +2600,7 @@ class Yui:
         Returns:
             Matrix2D: The world transformation matrix.
         """
-        if self._needs_world_matrix_update or self._has_ancestor_requested_world_matrix_update:
-            self._update_matrices()
+        self._update_matrices()
         return self._world_matrix
     @property
     def local_inverted_matrix(self) -> Matrix2D:
@@ -2588,8 +2610,7 @@ class Yui:
         Returns:
             Matrix2D: The inverted local transformation matrix.
         """
-        if self._needs_local_matrix_update:
-            self._update_matrices()
+        self._update_matrices()
         return self._local_inverted_matrix
     @property
     def world_inverted_matrix(self) -> Matrix2D:
@@ -2599,8 +2620,7 @@ class Yui:
         Returns:
             Matrix2D: The inverted world transformation matrix.
         """
-        if self._needs_world_matrix_update or self._has_ancestor_requested_world_matrix_update:
-            self._update_matrices()
+        self._update_matrices()
         return self._world_inverted_matrix
 
     def to_local(self, point:Vector2D|tuple) -> Vector2D|tuple:
@@ -2614,7 +2634,7 @@ class Yui:
             Vector2D|tuple: The point in local coordinates.
         """
         if isinstance(point, Vector2D):
-            return self.world_inverted_matrix.transform(point)
+            return self.world_inverted_matrix @ point
         elif isinstance(point, tuple) and len(point) == 2:
             tp = self.world_inverted_matrix @ Vector2D(*point)
             return (tp.x, tp.y)
@@ -2675,9 +2695,17 @@ class Yui:
         """
         if self._needs_world_matrix_update or self._has_ancestor_requested_world_matrix_update:
             self._update_matrices()
-        local_bounds = self.local_bounds
-        transformed = self.world_matrix.transform_rect(local_bounds)
-        return (transformed.x, transformed.y, transformed.width, transformed.height)
+        l, t, r, b = self.local_bounds
+        lt = self.world_matrix @ Vector2D(l, t)
+        rt = self.world_matrix @ Vector2D(r, t)
+        lb = self.world_matrix @ Vector2D(l, b)
+        rb = self.world_matrix @ Vector2D(r, b)
+        ar = [lt, rt, lb, rb]
+        l = min([v.x for v in ar])
+        t = min([v.y for v in ar])
+        r = max([v.x for v in ar])
+        b = max([v.y for v in ar])
+        return (l, t, r, b)
 
     # --- Hierarchy ---
     @property
@@ -3072,12 +3100,12 @@ class Yui:
         name = self.__class__.__name__
         bounds = self.world_bounds
         # Hue based on depth
-        color = Color.from_hue(self.depth / 10.0) # Normalize depth to a hue value
+        color = Color.from_hsb(self.depth / 10.0) # Normalize depth to a hue value
 
         graphics.fill_color = Color(0, 0, 0, 0) # Transparent fill for bounds
         graphics.stroke_color = color # Stroke color based on depth
         graphics.rect_mode = 'corners' # Center mode for bounds
-        graphics.rect(bounds[0], bounds[1], bounds[2], bounds[3])
+        graphics.rectangle(bounds[0], bounds[1], bounds[2], bounds[3])
 
         graphics.fill_color = color
         graphics.text_size = 12
@@ -3269,6 +3297,8 @@ class YuiRoot(Yui):
 
         self.width = width
         self.height = height
+        
+        self._auto_draw_bounds = False
 
     def yui_at_point(self, point:Vector2D|tuple, extends, exclude:list[Yui]=[], current:Yui=None) -> 'Yui':
         """
@@ -3309,8 +3339,6 @@ class YuiRoot(Yui):
         
         if not current.is_interactable(local):
             return None
-        
-        print(f"    Returned: {current}")
         
         return current
     def init(self):
@@ -3370,8 +3398,6 @@ class YuiRoot(Yui):
                 elif event.type == pygame.DROPCOMPLETE:
                     pass
                 
-                
-                
 
             # Handle UI-level resize
             if self.width != self._window.get_width() or self.height != self._window.get_height():
@@ -3382,11 +3408,21 @@ class YuiRoot(Yui):
             # Handle drawing
             self._window_graphics.background(Color(0, 0, 0, 0))
             self.draw(self._window_graphics)
+            self._do_debug(self._window_graphics)
             self._window.blit(self._window_graphics, (0, 0))
             
             pygame.display.flip()
             clock.tick(self._framerate)
 
+    def _do_debug(self, graphics):
+        if self._auto_draw_bounds:
+            self.draw_bounds(graphics)
+    @property
+    def auto_draw_bounds(self, draw:bool) -> bool:
+        return self._auto_draw_bounds
+    @auto_draw_bounds.setter
+    def auto_draw_bounds(self, value:bool):
+        self._auto_draw_bounds = value
 
 class Mouse:
     def __init__(self, root:YuiRoot):
@@ -3500,14 +3536,17 @@ class Mouse:
         else:
             self._pressed.on_mouse_event(yui_event)
     def mouse_wheel(self, event:pygame.event.Event):
-        yui_event = MouseEvent.from_pygame(event) if not self._current else MouseEvent.from_pygame_last(self._current, event)
+        yui_event = MouseEvent.from_pygame(self, event) if not self._current else MouseEvent.from_pygame_last(self._current, event)
+        print("Yui Event:", yui_event.is_wheel_event, yui_event.event)
+        
         if self._current is None:
             self._current = yui_event
         self._last = self._current
         self._current = yui_event
 
         if self._pressed is None:
-            pointed = self._root.yui_at_point(event.pos, MouseListener)
+            print(yui_event.point, yui_event.scroll, hex(yui_event.event))
+            pointed = self._root.yui_at_point(yui_event.point, MouseListener)
             if pointed is not None:
                 pointed.on_mouse_event(yui_event)
         else:
@@ -3537,9 +3576,10 @@ class MouseEvent:
         self.mouse = mouse
         self.point = Vector2D(*point) if isinstance(point, tuple) else point
         self.scroll = scroll
-        self.event = event
+        self.event = event if event else 0
         self.down = down
         self.timestamp = time.time() if timestamp is None else timestamp
+        self.last = None
     
     @staticmethod
     def from_event(last:MouseEvent, point:Vector2D|tuple, scroll:int, event:int, timestamp:float=None) -> 'MouseEvent':
@@ -3556,15 +3596,19 @@ class MouseEvent:
         """
         if isinstance(point, tuple):
             point = Vector2D(*point)
-        mouse_event = MouseEvent(last.mouse, scroll, last.event, last.down, timestamp)
+        if event is None:
+            event = 0
+        
+        mouse_event = MouseEvent(last.mouse, point, scroll, last.event, last.down, timestamp)
         if (event & MouseEvent.PRESSED) != 0:
             mouse_event.down = last.down | (event & MouseEvent.BUTTON_MASK)
         elif (event & MouseEvent.RELEASED) != 0:
             mouse_event.down = last.down & ~(event & MouseEvent.BUTTON_MASK)
         
         return mouse_event
+    
     @staticmethod
-    def from_pygame(mouse:Mouse, event:pygame.event.Event, last:MouseEvent=None) -> 'MouseEvent':
+    def from_pygame(mouse:Mouse, event:pygame.event.Event) -> 'MouseEvent':
         """
         Creates a MouseEvent from a pygame event.
         
@@ -3577,7 +3621,7 @@ class MouseEvent:
         if not isinstance(event, pygame.event.Event):
             raise TypeError("event must be a pygame.event.Event.")
         
-        point = Vector2D(*event.pos)
+        point = Vector2D(*event.pos) if event.pos else mouse._current.point
         scroll = event.wheel if hasattr(event, 'wheel') else 0
         event_type = 0
         event_button = 0
@@ -3593,20 +3637,13 @@ class MouseEvent:
             event_type = 0
             
         if hasattr(event, 'button'):
-            if event.button == 1:  # Left button
-                event_button = MouseEvent.LEFT
-            elif event.button == 2:  # Middle button
-                event_button = MouseEvent.MIDDLE
-            elif event.button == 3:  # Right button
-                event_button = MouseEvent.RIGHT
-            else:  # Alt button (usually not used in pygame)
-                event_button = MouseEvent.ALT
-        
-        if last is None:
-            last = MouseEvent(mouse, point, scroll, event_type | event_button, event_button)
+            event_button = MouseEvent.mouse_button(event.button)
         else:
-            last = MouseEvent.from_event(last, point, scroll, event_type | event_button, timestamp=event.timestamp if hasattr(event, 'timestamp') else None)
-        return MouseEvent(last.mouse, point, scroll, event_type | event_button, last.down, timestamp=event.timestamp if hasattr(event, 'timestamp') else None)
+            event_button = 0
+                
+        
+        last = MouseEvent(mouse, point, scroll, event_type | event_button, event_button)
+        return last
     @staticmethod
     def from_pygame_last(last:MouseEvent, event:pygame.event.Event) -> 'MouseEvent':
         """
@@ -3622,8 +3659,7 @@ class MouseEvent:
         if not isinstance(event, pygame.event.Event):
             raise TypeError("event must be a pygame.event.Event.")
         
-        print(event.pos)
-        point = Vector2D(*event.pos)
+        point = Vector2D(*event.pos) if hasattr(event, "pos") else last.mouse._current.point
         scroll = event.wheel if hasattr(event, 'wheel') else 0
         event_type = 0
         event_button = 0
@@ -4113,21 +4149,33 @@ class KeyboardListener(ABC):
         """
         pass
 
+class TestRoot(YuiRoot, MouseListener):
+    def __init__(self, width:int=800, height:int=600, framerate:int=60, name:str='Yui Window'):
+        super().__init__(width, height, framerate, name)
+    
+    def on_mouse_event(self, event):
+        if event.is_wheel_event:
+            self._children[0].sx *= 1.01 ** event.scroll
+            self._children[0].sy *= 1.01 ** event.scroll
+        self._children[0].x, self._children[0].y = event.point.x, event.point.y
+        
+        
+        
+    
+
 class TestYui(Yui):
     def __init__(self, parent, width=100, height=50):
         super().__init__(parent)
         self.width = width
         self.height = height
-        self.uses_graphics = True
 
     def on_draw(self, graphics: Graphics):
-        graphics.fill_color = Color(100, 200, 255)
-        graphics.stroke_color = Color(0, 0, 0)
+        graphics.fill_color = Color(255, 255, 255, 255)
+        graphics.no_stroke()
         graphics.rect_mode = 'corner'
         graphics.rectangle(0, 0, self.width, self.height)
 
-root = YuiRoot()
+root = TestRoot(640, 480)
 yui = TestYui(root)
-print("Pointed:", root.yui_at_point((0, 2), Yui))
 root.print_tree()
 root.init()
