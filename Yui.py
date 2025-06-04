@@ -606,7 +606,7 @@ class Graphics(pygame.surface.Surface):
     
     MODES = ["corner", "corners", "center", "radius"]
     
-    def __new__(cls, width:int, height:int) -> 'Graphics':
+    def __new__(cls, width:int=None, height:int=None, surface:pygame.surface.Surface=None) -> 'Graphics':
         """
         Creates a new Graphics surface with the specified width and height.
         
@@ -620,6 +620,13 @@ class Graphics(pygame.surface.Surface):
             Graphics: A new Graphics instance.
         """
         
+        if surface is not None:
+            # If a surface is provided, use it directly
+            if not isinstance(surface, pygame.surface.Surface):
+                raise TypeError("surface must be a pygame.surface.Surface instance.")
+            obj = surface.view(cls)
+            width, height = obj.get_size()
+
         if _use_gl:
             # If using OpenGL, create a surface with OpenGL flags
             flags = pygame.OPENGL | pygame.DOUBLEBUF
@@ -2686,6 +2693,15 @@ class Yui:
         """
         return self._children.copy()
     @property
+    def child_count(self) -> int:
+        """
+        Gets the number of children of this Yui element.
+        
+        Returns:
+            int: The number of child elements.
+        """
+        return len(self.children)
+    @property
     def root(self) -> 'YuiRoot':
         """
         Gets the root element of this Yui element.
@@ -2760,7 +2776,7 @@ class Yui:
         return other in self.ancestors
     
     def set_parent(self, parent: 'Yui', index:int=None):
-        if self._destroyed or isinstance(self, YuiRoot) or (parent is not None and not parent.is_destroyed):
+        if self._destroyed or isinstance(self, YuiRoot) or (parent is not None and parent.is_destroyed):
             return
         
         if parent is None: # Can't assign a null parent
@@ -3095,6 +3111,52 @@ class Yui:
         This can be overridden by subclasses to perform custom actions.
         """
         pass
+    def can_parent_be_set(self, parent: Yui) -> bool:
+        """
+        Checks if this Yui element can be set to the specified parent.
+        This can be overriden by subclasses to implement custom logic.
+        Args:
+            parent (Yui): The parent element to check.
+        Returns:
+            bool: True if the parent can be set, False otherwise.
+        """
+        return True
+    def can_parent_be_removed(self, parent: Yui) -> bool:
+        """
+        Checks if this Yui element can be removed from the specified parent.
+        This can be overridden by subclasses to implement custom logic.
+        Args:
+            parent (Yui): The parent element to check.
+        Returns:
+            bool: True if the parent can be removed, False otherwise.
+        """
+        return True
+    def can_child_be_added(self, child:Yui, index:int) -> bool:
+        """
+        Checks if a child Yui element can be added to this Yui element at the specified index.
+        This can be overridden by subclasses to implement custom logic.
+        
+        Args:
+            child (Yui): The child element to check.
+            index (int): The index at which to add the child.
+        
+        Returns:
+            bool: True if the child can be added, False otherwise.
+        """
+        return True
+    def can_child_be_removed(self, child:Yui, index:int) -> bool:
+        """
+        Checks if a child Yui element can be removed from this Yui element at the specified index.
+        This can be overridden by subclasses to implement custom logic.
+        
+        Args:
+            child (Yui): The child element to check.
+            index (int): The index of the child to remove.
+        
+        Returns:
+            bool: True if the child can be removed, False otherwise.
+        """
+        return True
     def on_parent_set(self, parent:Yui) -> None:
         """
         Callback for when the parent of this Yui element is set.
@@ -3184,17 +3246,27 @@ class Yui:
         return True
     
 class YuiRoot(Yui):
-    def __init__(self):
+    def __init__(self, width:int=800, height:int=600, framerate:int=60, name:str='Yui Window'):
         # TODO: Implement root-specific initialization logic.
         """
         Initializes a root Yui element.
         The root element does not have a parent and is the top of the hierarchy.
         """
         super().__init__(parent=None)
-        self._pygame_root = 
+
+        self._name = name
+        self._framerate = framerate
+        self._window = None  # Placeholder for the window object, to be set later
+        self._window_graphics = None  # Placeholder for the window graphics object, to be set later
+        self._mouse = Mouse(self)
+        self._keyboard = Keyboard(self)
+
+        self.width = width
+        self.height = height
+
 
     
-    def yui_at_point(self, point:Vector2D|tuple, extends, exclude:list[Yui]=[], current:Yui=self) -> 'Yui':
+    def yui_at_point(self, point:Vector2D|tuple, extends, exclude:list[Yui]=[], current:Yui=None) -> 'Yui':
         """
         Searches for a Yui element at the given point in world coordinates.
         
@@ -3207,6 +3279,9 @@ class YuiRoot(Yui):
         Returns:
             Yui: The first Yui element found at the point that matches the specified type, or None if no such element is found.
         """
+        if current is None:
+            current = self
+
         local = current.to_local(point)
         
         # Check if a Yui has forced cutoff
@@ -3231,9 +3306,79 @@ class YuiRoot(Yui):
             return None
         
         return current
-    
-    
-    
+    def init(self):
+        "Initlizes the pygame window and the Yui root element."
+        
+        self._window = pygame.display.set_mode((self._width, self._height))
+        self._window_graphics = Graphics(surface=self._window)
+        self.game_loop()
+    def game_loop(self):
+        """
+        The main game loop for the Yui root element.
+        This method should be called to start the Yui application.
+        """
+        clock = pygame.time.Clock()
+        
+        while not self.is_destroyed:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.destroy()
+                    # Handle window destruction
+                    pygame.quit()
+                elif event.type == pygame.VIDEORESIZE:
+                    # Handle window resize
+                    self.width, self.height = event.w, event.h
+                    self._window = pygame.display.set_mode((self._width, self._height), pygame.RESIZABLE)
+                    self._window_graphics = Graphics(surface=self._window)
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    self._mouse.mouse_pressed(event)
+                elif event.type == pygame.MOUSEBUTTONUP:
+                    self._mouse.mouse_released(event)
+                elif event.type == pygame.MOUSEMOTION:
+                    self._mouse.mouse_moved(event)
+                elif event.type == pygame.MOUSEWHEEL:
+                    self._mouse.mouse_wheel(event)
+                # TODO: Keyboard events
+                elif event.type == pygame.KEYDOWN:
+                    pass
+                elif event.type == pygame.KEYUP:
+                    pass
+                elif event.type == pygame.KEYREPEAT:
+                    pass
+                elif event.type == pygame.WINDOWENTER:
+                    pass
+                elif event.type == pygame.WINDOWLEAVE:
+                    pass
+                elif event.type == pygame.WINDOWFOCUSGAINED:
+                    pass
+                elif event.type == pygame.WINDOWFOCUSLOST:
+                    pass
+                elif event.type == pygame.WINDOWMINIMIZED:
+                    pass
+                elif event.type == pygame.WINDOWRESTORED:
+                    pass
+                elif event.type == pygame.DROPFILE:
+                    pass
+                elif event.type == pygame.DROPBEGIN:
+                    pass
+                elif event.type == pygame.DROPCOMPLETE:
+                    pass
+                
+                
+                
+
+            # Handle UI-level resize
+            if self.width != self._window.get_width() or self.height != self._window.get_height():
+                # Update the window size if it has changed
+                self._window = pygame.display.set_mode((self._width, self._height), pygame.RESIZABLE)
+                self._window_graphics = Graphics(surface=self._window)
+            
+            # Handle drawing
+            self._window_graphics.clear()
+            self.draw(self._window_graphics)
+            pygame.display.flip()
+            clock.tick(self._framerate)
+                    
         
     
 
@@ -3249,13 +3394,124 @@ class Mouse:
             raise TypeError("root must be an instance of YuiRoot.")
 
         self._root = root
-        self._pressed:'Mouse.Listener', _last_pressed:'Mouse.Listener' = None, None
+        self._pressed:'Mouse.Listener' = None
+        self._last_pressed:'Mouse.Listener' = None
         self._start:'Mouse.Event' = None
         self._last_pressed_left:'Mouse.Event' = None
         self._last_pressed_right:'Mouse.Event' = None
         self._last_pressed_middle:'Mouse.Event' = None
         self._last_pressed_alt:'Mouse.Event' = None
-        self._last:'Mouse.Event', self._current:'Mouse.Event' = None, None
+        self._last:'Mouse.Event' = None
+        self._current:'Mouse.Event' = None
+    def mouse_pressed(self, event:pygame.event.Event):
+        """
+        Handles mouse pressed events.
+        
+        Args:
+            event (pygame.event.Event): The pygame event to handle.
+        """
+        if not isinstance(event, pygame.event.Event):
+            raise TypeError("event must be a pygame.event.Event.")
+        
+        button = MouseEvent.mouse_button(event.button)
+        yui_event = MouseEvent.from_pygame(event, self._last)
+        
+        pointed = self._root.yui_at_point(event.pos, Yui, exclude=[self._root])
+        if pointed is None:
+            return
+        
+        if self._start is None:
+            self._start = yui_event
+        
+        if button == MouseEvent.LEFT:
+            self._last_pressed_left = yui_event
+        elif button == MouseEvent.RIGHT:
+            self._last_pressed_right = yui_event
+        elif button == MouseEvent.MIDDLE:
+            self._last_pressed_middle = yui_event
+        elif button == MouseEvent.ALT:
+            self._last_pressed_alt = yui_event
+        
+        if self._current is None:
+            self._current = yui_event
+        self.last = self._current
+        self._current = yui_event
+
+        self._pressed = pointed
+        if self._pressed is not None:
+            self._pressed.on_mouse_event(yui_event)
+    def mouse_released(self, event:pygame.event.Event):
+        """
+        Handles mouse released events.
+        
+        Args:
+            event (pygame.event.Event): The pygame event to handle.
+        """
+        if not isinstance(event, pygame.event.Event):
+            raise TypeError("event must be a pygame.event.Event.")
+        
+        button = MouseEvent.mouse_button(event.button)
+        yui_event = MouseEvent.from_pygame(event) if not self._current else MouseEvent.from_pygame_last(self._current, event)
+        if self._start is None:
+            self._start = yui_event
+        
+        if self._current is None:
+            self._current = yui_event
+        
+        self._last = self._current
+        self._current = yui_event
+
+        if button == MouseEvent.LEFT:
+            self._last_pressed_left = None
+        elif button == MouseEvent.RIGHT:
+            self._last_pressed_right = None
+        elif button == MouseEvent.MIDDLE:
+            self._last_pressed_middle = None
+        elif button == MouseEvent.ALT:
+            self._last_pressed_alt = None
+        
+        released = self._pressed
+        if not self._current.any_button_down:
+            self._pressed = None
+        if released is not None:
+            released.on_mouse_event(yui_event)
+
+        if self._current.any_button_down:
+            self._start = None
+    
+    def mouse_moved(self, event:pygame.event.Event):
+        yui_event = MouseEvent.from_pygame(event) if not self._current else MouseEvent.from_pygame_last(self._current, event)
+        if self._current is None:
+            self._current = yui_event
+        self._last = self._current
+        self._current = yui_event
+        
+        # Move
+        if self._pressed is None:
+            pointed = self._root.yui_at_point(event.pos, Yui, exclude=[self._root])
+            if pointed is not None:
+                pointed.on_mouse_event(yui_event)
+        # Drag
+        else:
+            self._pressed.on_mouse_event(yui_event)
+    
+    def mouse_wheel(self, event:pygame.event.Event):
+        yui_event = MouseEvent.from_pygame(event) if not self._current else MouseEvent.from_pygame_last(self._current, event)
+        if self._current is None:
+            self._current = yui_event
+        self._last = self._current
+        self._current = yui_event
+
+        if self._pressed is None:
+            pointed = self._root.yui_at_point(event.pos, Yui, exclude=[self._root])
+            if pointed is not None:
+                pointed.on_mouse_event(yui_event)
+        else:
+            self._pressed.on_mouse_event(yui_event)
+        
+        
+        
+    
 class MouseEvent:
     LEFT = 0x1
     RIGHT = 0x2
@@ -3304,6 +3560,108 @@ class MouseEvent:
             mouse_event.down = last.down & ~(event & MouseEvent.BUTTON_MASK)
         
         return mouse_event
+    @staticmethod
+    def from_pygame(self, event:pygame.event.Event, last:MouseEvent=None) -> 'MouseEvent':
+        """
+        Creates a MouseEvent from a pygame event.
+        
+        Args:
+            event (pygame.event.Event): The pygame event to convert.
+        
+        Returns:
+            MouseEvent: A new MouseEvent instance.
+        """
+        if not isinstance(event, pygame.event.Event):
+            raise TypeError("event must be a pygame.event.Event.")
+        
+        point = Vector2D(event.pos)
+        scroll = event.wheel if hasattr(event, 'wheel') else 0
+        event_type = 0
+        event_button = 0
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            event_type = MouseEvent.PRESSED
+        if event.type == pygame.MOUSEBUTTONUP:
+            event_type = MouseEvent.RELEASED
+        if event.type == pygame.MOUSEWHEEL:
+            event_type = MouseEvent.WHEEL
+            scroll = event.y if hasattr(event, 'y') else 0
+        if event.type == pygame.MOUSEMOTION:
+            event_type = 0
+        
+        if event.button == 1:  # Left button
+            event_button = MouseEvent.LEFT
+        elif event.button == 2:  # Middle button
+            event_button = MouseEvent.MIDDLE
+        elif event.button == 3:  # Right button
+            event_button = MouseEvent.RIGHT
+        else:  # Alt button (usually not used in pygame)
+            event_button = MouseEvent.ALT
+        
+        if last is None:
+            last = MouseEvent(event.mouse, point, scroll, 0, 0)
+        else:
+            last = MouseEvent.from_event(last, point, scroll, event_type | event_button, timestamp=event.timestamp if hasattr(event, 'timestamp') else None)
+        return MouseEvent(last.mouse, point, scroll, event_type | event_button, last.down, timestamp=event.timestamp if hasattr(event, 'timestamp') else None)
+    @staticmethod
+    def from_pygame_last(self, last:MouseEvent, event:pygame.event.Event) -> 'MouseEvent':
+        """
+        Creates a MouseEvent from a pygame event using the last MouseEvent as a reference.
+        
+        Args:
+            last (MouseEvent): The last mouse event.
+            event (pygame.event.Event): The pygame event to convert.
+        
+        Returns:
+            MouseEvent: A new MouseEvent instance.
+        """
+        if not isinstance(event, pygame.event.Event):
+            raise TypeError("event must be a pygame.event.Event.")
+        
+        point = Vector2D(event.pos)
+        scroll = event.wheel if hasattr(event, 'wheel') else 0
+        event_type = 0
+        event_button = 0
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            event_type = MouseEvent.PRESSED
+        if event.type == pygame.MOUSEBUTTONUP:
+            event_type = MouseEvent.RELEASED
+        if event.type == pygame.MOUSEWHEEL:
+            event_type = MouseEvent.WHEEL
+            scroll = event.y if hasattr(event, 'y') else 0
+        if event.type == pygame.MOUSEMOTION:
+            event_type = 0
+        
+        if event.button == 1:
+            event_button = MouseEvent.LEFT
+        elif event.button == 2:
+            event_button = MouseEvent.MIDDLE
+        elif event.button == 3:
+            event_button = MouseEvent.RIGHT
+        else:
+            event_button = MouseEvent.ALT
+        # Create a new MouseEvent based on the last event
+        return MouseEvent.from_event(last, point, scroll, event_type | event_button, timestamp=event.timestamp if hasattr(event, 'timestamp') else None)
+    @staticmethod
+    def mouse_button(button:int) -> int:
+        """
+        Gets the mouse button event type based on the button number.
+        
+        Args:
+            button (int): The button number (1 for left, 2 for middle, 3 for right).
+        
+        Returns:
+            int: The mouse button event type.
+        """
+        if button == 1:
+            return MouseEvent.LEFT
+        elif button == 2:
+            return MouseEvent.MIDDLE
+        elif button == 3:
+            return MouseEvent.RIGHT
+        else:
+            return MouseEvent.ALT
 
     # --- Event Type Properties ---
     @property
@@ -3537,4 +3895,4 @@ class KeyboardListener():
 root = YuiRoot()
 yui = Yui(root)
 root.print_tree()
-print(yui.parent, yui.root)
+print("Yui debug:", yui.parent, yui.root)
