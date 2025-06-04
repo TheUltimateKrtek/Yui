@@ -5,12 +5,14 @@ import numpy as np
 import pygame
 from abc import ABC, abstractmethod
 
+# TODO: Remove Surface as an argument to Graphics __new__
+
 # ---------------------
 # Utils
 # ---------------------
 
 class Matrix2D(np.ndarray):
-    """,
+    """
     A 3x3 transformation matrix for 2D graphics.
     This class represents a 3x3 matrix used for transformations in 2D space.
     It supports operations like translation, rotation, scaling, and point transformation.
@@ -392,8 +394,7 @@ class Vector2D(np.ndarray):
             NotImplemented: If the left operand is not a Matrix2D.
         """
         if isinstance(matrix, Matrix2D):
-            result = matrix @ self
-            return Vector2D(result[0, 0], result[1, 0])
+            return (matrix @ self).view(Vector2D)
         return NotImplemented
     
     def swizzle(self, pattern:str) -> 'Vector2D':
@@ -606,58 +607,40 @@ class Graphics(pygame.surface.Surface):
     
     MODES = ["corner", "corners", "center", "radius"]
     
-    def __new__(cls, width:int=None, height:int=None, surface:pygame.surface.Surface=None) -> 'Graphics':
+    def __init__(self, width:int, height:int) -> 'Graphics':
         """
         Creates a new Graphics surface with the specified width and height.
         
         Args:
             width (int): The width of the surface.
             height (int): The height of the surface.
-            flags (int, optional): Pygame surface flags. Defaults to 0.
-            depth (int, optional): The bit depth of the surface. Defaults to 0.
         
         Returns:
             Graphics: A new Graphics instance.
         """
         
-        if surface is not None:
-            # If a surface is provided, use it directly
-            if not isinstance(surface, pygame.surface.Surface):
-                raise TypeError("surface must be a pygame.surface.Surface instance.")
-            obj = surface.view(cls)
-            width, height = obj.get_size()
-
-        if _use_gl:
-            # If using OpenGL, create a surface with OpenGL flags
-            flags = pygame.OPENGL | pygame.DOUBLEBUF
-        else:
-            # Create a regular pygame surface
-            flags = 0
-        surface = pygame.display.set_mode((width, height), flags=flags, depth=0)
-        obj = surface.view(cls)
+        super().__init__((width, height), pygame.SRCALPHA)
         
         # Add additional attributes
-        obj._transfroms = [Matrix2D.identity()]
+        self._transforms = [Matrix2D.identity()]
         
-        obj._fill_color = Color(0, 0, 0, 255)  # Default fill color
-        obj._stroke_color = Color(255, 255, 255, 255)
-        obj._stroke_width = 1  # Default stroke width
-        obj._texture = None  # Default texture is None, can be a Graphics object
-        obj._gradient = None  # Default gradient is None, can be a tuple of two colors
+        self._fill_color = Color(0, 0, 0, 255)  # Default fill color
+        self._stroke_color = Color(255, 255, 255, 255)
+        self._stroke_width = 1  # Default stroke width
+        self._texture = None  # Default texture is None, can be a Graphics selfect
+        self._gradient = None  # Default gradient is None, can be a tuple of two colors
         
-        obj._rect_mode = 'corner'  # Default rectangle mode
-        obj._ellipse_mode = 'center'  # Default ellipse mode
-        obj._image_mode = 'corner'  # Default image mode
+        self._rect_mode = 'corner'  # Default rectangle mode
+        self._ellipse_mode = 'center'  # Default ellipse mode
+        self._image_mode = 'corner'  # Default image mode
         
-        obj._text_align_x = 0  # Horizontal text alignment (0: left, 1: right)
-        obj._text_align_y = 0  # Vertical text alignment (0: top, 1: bottom)
-        obj._text_font = pygame.font.Font(None, 36)  # Default font
-        obj._text_size = 12  # Default text size
-        obj._text_leading = 0  # Default text leading (line spacing)
+        self._text_align_x = 0  # Horizontal text alignment (0: left, 1: right)
+        self._text_align_y = 0  # Vertical text alignment (0: top, 1: bottom)
+        self._text_font = pygame.font.Font(None, 36)  # Default font
+        self._text_size = 12  # Default text size
+        self._text_leading = 0  # Default text leading (line spacing)
         
-        obj._curve_detail = 100  # Default curve detail for bezier curves
-        
-        return obj
+        self._curve_detail = 100  # Default curve detail for bezier curves
     
     def __array_finalize__(self, obj) -> None:
         if obj is None: return
@@ -2537,7 +2520,7 @@ class Yui:
             changed = True
             self._needs_world_matrix_update = False
         if changed:
-            self.on_matrix_changed(last_local_matrix, last_world_matrix)
+            self.on_matrix_updated(last_local_matrix, last_world_matrix)
 
     def _has_ancestor_requested_world_matrix_update(self) -> bool:
         """
@@ -2610,7 +2593,7 @@ class Yui:
         if isinstance(point, Vector2D):
             return self.world_inverted_matrix.transform(point)
         elif isinstance(point, tuple) and len(point) == 2:
-            tp = self.world_inverted_matrix.transform(Vector2D(*point))
+            tp = self.world_inverted_matrix @ Vector2D(*point)
             return (tp.x, tp.y)
         else:
             raise TypeError("point must be a Vector2D or a tuple of two numbers.")
@@ -2625,9 +2608,9 @@ class Yui:
             Vector2D|tuple: The point in world coordinates.
         """
         if isinstance(point, Vector2D):
-            return self.world_matrix.transform(point)
+            return self.world_matrix @ point
         elif isinstance(point, tuple) and len(point) == 2:
-            tp = self.world_matrix.transform(Vector2D(*point))
+            tp = self.world_matrix @ Vector2D(*point)
             return (tp.x, tp.y)
         else:
             raise TypeError("point must be a Vector2D or a tuple of two numbers.")
@@ -3264,8 +3247,6 @@ class YuiRoot(Yui):
         self.width = width
         self.height = height
 
-
-    
     def yui_at_point(self, point:Vector2D|tuple, extends, exclude:list[Yui]=[], current:Yui=None) -> 'Yui':
         """
         Searches for a Yui element at the given point in world coordinates.
@@ -3309,10 +3290,11 @@ class YuiRoot(Yui):
     def init(self):
         "Initlizes the pygame window and the Yui root element."
         
+        pygame.init()
         self._window = pygame.display.set_mode((self._width, self._height))
-        self._window_graphics = Graphics(surface=self._window)
-        self.game_loop()
-    def game_loop(self):
+        self._window_graphics = Graphics(self._window.get_width(), self._window.get_height())
+        self._game_loop()
+    def _game_loop(self):
         """
         The main game loop for the Yui root element.
         This method should be called to start the Yui application.
@@ -3329,7 +3311,7 @@ class YuiRoot(Yui):
                     # Handle window resize
                     self.width, self.height = event.w, event.h
                     self._window = pygame.display.set_mode((self._width, self._height), pygame.RESIZABLE)
-                    self._window_graphics = Graphics(surface=self._window)
+                    self._window_graphics = Graphics(*self._window_graphics.get_size())
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     self._mouse.mouse_pressed(event)
                 elif event.type == pygame.MOUSEBUTTONUP:
@@ -3340,11 +3322,9 @@ class YuiRoot(Yui):
                     self._mouse.mouse_wheel(event)
                 # TODO: Keyboard events
                 elif event.type == pygame.KEYDOWN:
-                    pass
+                    self._keyboard.key_pressed(event)
                 elif event.type == pygame.KEYUP:
-                    pass
-                elif event.type == pygame.KEYREPEAT:
-                    pass
+                    self._keyboard.key_released(event)
                 elif event.type == pygame.WINDOWENTER:
                     pass
                 elif event.type == pygame.WINDOWLEAVE:
@@ -3371,13 +3351,16 @@ class YuiRoot(Yui):
             if self.width != self._window.get_width() or self.height != self._window.get_height():
                 # Update the window size if it has changed
                 self._window = pygame.display.set_mode((self._width, self._height), pygame.RESIZABLE)
-                self._window_graphics = Graphics(surface=self._window)
+                self._window_graphics = Graphics(*self._window_graphics.get_size())
             
             # Handle drawing
-            self._window_graphics.clear()
+            self._window_graphics.background(Color(0, 0, 0, 0))
             self.draw(self._window_graphics)
+            self._window.blit(self._window_graphics, (0, 0))
+            
             pygame.display.flip()
             clock.tick(self._framerate)
+
 
 class Mouse:
     def __init__(self, root:YuiRoot):
@@ -3411,7 +3394,7 @@ class Mouse:
             raise TypeError("event must be a pygame.event.Event.")
         
         button = MouseEvent.mouse_button(event.button)
-        yui_event = MouseEvent.from_pygame(event, self._last)
+        yui_event = MouseEvent.from_pygame(self, event)
         
         pointed = self._root.yui_at_point(event.pos, Yui, exclude=[self._root])
         if pointed is None:
@@ -3448,7 +3431,7 @@ class Mouse:
             raise TypeError("event must be a pygame.event.Event.")
         
         button = MouseEvent.mouse_button(event.button)
-        yui_event = MouseEvent.from_pygame(event) if not self._current else MouseEvent.from_pygame_last(self._current, event)
+        yui_event = MouseEvent.from_pygame(self, event) if not self._current else MouseEvent.from_pygame_last(self._current, event)
         if self._start is None:
             self._start = yui_event
         
@@ -3475,9 +3458,8 @@ class Mouse:
 
         if self._current.any_button_down:
             self._start = None
-    
     def mouse_moved(self, event:pygame.event.Event):
-        yui_event = MouseEvent.from_pygame(event) if not self._current else MouseEvent.from_pygame_last(self._current, event)
+        yui_event = MouseEvent.from_pygame(self, event) if not self._current else MouseEvent.from_pygame_last(self._current, event)
         if self._current is None:
             self._current = yui_event
         self._last = self._current
@@ -3555,7 +3537,7 @@ class MouseEvent:
         
         return mouse_event
     @staticmethod
-    def from_pygame(self, event:pygame.event.Event, last:MouseEvent=None) -> 'MouseEvent':
+    def from_pygame(mouse:Mouse, event:pygame.event.Event, last:MouseEvent=None) -> 'MouseEvent':
         """
         Creates a MouseEvent from a pygame event.
         
@@ -3568,7 +3550,7 @@ class MouseEvent:
         if not isinstance(event, pygame.event.Event):
             raise TypeError("event must be a pygame.event.Event.")
         
-        point = Vector2D(event.pos)
+        point = Vector2D(*event.pos)
         scroll = event.wheel if hasattr(event, 'wheel') else 0
         event_type = 0
         event_button = 0
@@ -3582,23 +3564,24 @@ class MouseEvent:
             scroll = event.y if hasattr(event, 'y') else 0
         if event.type == pygame.MOUSEMOTION:
             event_type = 0
-        
-        if event.button == 1:  # Left button
-            event_button = MouseEvent.LEFT
-        elif event.button == 2:  # Middle button
-            event_button = MouseEvent.MIDDLE
-        elif event.button == 3:  # Right button
-            event_button = MouseEvent.RIGHT
-        else:  # Alt button (usually not used in pygame)
-            event_button = MouseEvent.ALT
+            
+        if hasattr(event, 'button'):
+            if event.button == 1:  # Left button
+                event_button = MouseEvent.LEFT
+            elif event.button == 2:  # Middle button
+                event_button = MouseEvent.MIDDLE
+            elif event.button == 3:  # Right button
+                event_button = MouseEvent.RIGHT
+            else:  # Alt button (usually not used in pygame)
+                event_button = MouseEvent.ALT
         
         if last is None:
-            last = MouseEvent(event.mouse, point, scroll, 0, 0)
+            last = MouseEvent(mouse, point, scroll, event_type | event_button, event_button)
         else:
             last = MouseEvent.from_event(last, point, scroll, event_type | event_button, timestamp=event.timestamp if hasattr(event, 'timestamp') else None)
         return MouseEvent(last.mouse, point, scroll, event_type | event_button, last.down, timestamp=event.timestamp if hasattr(event, 'timestamp') else None)
     @staticmethod
-    def from_pygame_last(self, last:MouseEvent, event:pygame.event.Event) -> 'MouseEvent':
+    def from_pygame_last(last:MouseEvent, event:pygame.event.Event) -> 'MouseEvent':
         """
         Creates a MouseEvent from a pygame event using the last MouseEvent as a reference.
         
@@ -3627,14 +3610,15 @@ class MouseEvent:
         if event.type == pygame.MOUSEMOTION:
             event_type = 0
         
-        if event.button == 1:
-            event_button = MouseEvent.LEFT
-        elif event.button == 2:
-            event_button = MouseEvent.MIDDLE
-        elif event.button == 3:
-            event_button = MouseEvent.RIGHT
-        else:
-            event_button = MouseEvent.ALT
+        if hasattr(event, 'button'):
+            if event.button == 1:
+                event_button = MouseEvent.LEFT
+            elif event.button == 2:
+                event_button = MouseEvent.MIDDLE
+            elif event.button == 3:
+                event_button = MouseEvent.RIGHT
+            else:
+                event_button = MouseEvent.ALT
         # Create a new MouseEvent based on the last event
         return MouseEvent.from_event(last, point, scroll, event_type | event_button, timestamp=event.timestamp if hasattr(event, 'timestamp') else None)
     @staticmethod
@@ -4054,6 +4038,7 @@ class KeyboardEvent():
         if isinstance(key, KeyboardEvent):
             return self._key == key.key and self._key_code == key.key_code
         return self._key == key or self._key_code == key
+
 class KeyboardListener(ABC):
     """
     Abstract base class for keyboard listeners.
@@ -4100,7 +4085,9 @@ class KeyboardListener(ABC):
         """
         pass
 
+print(type(Matrix2D() @ Vector2D()))
+
 root = YuiRoot()
 yui = Yui(root)
 root.print_tree()
-print("Yui debug:", yui.parent, yui.root)
+root.init()
