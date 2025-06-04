@@ -3378,9 +3378,6 @@ class YuiRoot(Yui):
             self.draw(self._window_graphics)
             pygame.display.flip()
             clock.tick(self._framerate)
-                    
-        
-    
 
 class Mouse:
     def __init__(self, root:YuiRoot):
@@ -3394,15 +3391,15 @@ class Mouse:
             raise TypeError("root must be an instance of YuiRoot.")
 
         self._root = root
-        self._pressed:'Mouse.Listener' = None
-        self._last_pressed:'Mouse.Listener' = None
-        self._start:'Mouse.Event' = None
-        self._last_pressed_left:'Mouse.Event' = None
-        self._last_pressed_right:'Mouse.Event' = None
-        self._last_pressed_middle:'Mouse.Event' = None
-        self._last_pressed_alt:'Mouse.Event' = None
-        self._last:'Mouse.Event' = None
-        self._current:'Mouse.Event' = None
+        self._pressed:'MouseListener' = None
+        self._last_pressed:'MouseListener' = None
+        self._start:'MouseEvent' = None
+        self._last_pressed_left:'MouseEvent' = None
+        self._last_pressed_right:'MouseEvent' = None
+        self._last_pressed_middle:'MouseEvent' = None
+        self._last_pressed_alt:'MouseEvent' = None
+        self._last:'MouseEvent' = None
+        self._current:'MouseEvent' = None
     def mouse_pressed(self, event:pygame.event.Event):
         """
         Handles mouse pressed events.
@@ -3508,10 +3505,7 @@ class Mouse:
                 pointed.on_mouse_event(yui_event)
         else:
             self._pressed.on_mouse_event(yui_event)
-        
-        
-        
-    
+  
 class MouseEvent:
     LEFT = 0x1
     RIGHT = 0x2
@@ -3854,7 +3848,7 @@ class MouseEvent:
             return True
 
         return False
-Mouse.Event = MouseEvent; del MouseEvent
+
 class MouseListener(ABC):
     """
     Abstract base class for mouse listeners.
@@ -3881,16 +3875,230 @@ class MouseListener(ABC):
             Vector2D: The point in local coordinates.
         """
         pass
-Mouse.Listener = MouseListener; del MouseListener
+
 
 class Keyboard():
-    pass
+    def __init__(self, root:YuiRoot):
+        self._root = root
+        self._keys = []
+        self._current:KeyboardListener = None
+    
+    @property
+    def keys(self) -> list[KeyboardEvent]:
+        """
+        Gets the list of currently pressed keys.
+        
+        Returns:
+            list[KeyboardEvent]: A list of KeyboardEvent objects representing the currently pressed keys.
+        """
+        return self._keys
+    @property
+    def listener(self) -> KeyboardListener:
+        """
+        Gets the current keyboard listener.
+        
+        Returns:
+            KeyboardListener: The current keyboard listener handling keyboard events.
+        """
+        return self._current
+
+    
+
+    def key_pressed(self, event:pygame.event.Event):
+        """
+        Handles key pressed events.
+        
+        Args:
+            event (pygame.event.Event): The pygame event to handle.
+        """
+        if not isinstance(event, pygame.event.Event):
+            raise TypeError("event must be a pygame.event.Event.")
+        
+        key_event = KeyboardEvent(event)
+        if any([key_event.is_key(k) for k in self._keys]):
+            return
+        self._keys.append(key_event)
+        if self._current is not None:
+            self._current.on_key_event(key_event)
+    def key_released(self, event:pygame.event.Event):
+        """
+        Handles key released events.
+        
+        Args:
+            event (pygame.event.Event): The pygame event to handle.
+        """
+        if not isinstance(event, pygame.event.Event):
+            raise TypeError("event must be a pygame.event.Event.")
+        
+        key_event = KeyboardEvent(event)
+        corresponding_key = None
+        for i in range(len(self._keys)):
+            if self._keys[i].is_key(key_event):
+                corresponding_key = self._keys[i]
+                break
+        if corresponding_key is None:
+            return
+        self._keys.remove(corresponding_key)
+        key_event = KeyboardEvent(event, last=corresponding_key)
+        if self._current is not None:
+            self._current.on_key_event()
+    
+    def start_keyboard(self, listener:KeyboardListener):
+        """
+        Starts listening for keyboard events with the specified listener.
+        
+        Args:
+            listener (KeyboardListener): The listener to handle keyboard events.
+        
+        Raises:
+            TypeError: If the listener is not an instance of KeyboardListener.
+        """
+        if not isinstance(listener, KeyboardListener):
+            raise TypeError("listener must be an instance of KeyboardListener.")
+        
+        if self._current == listener:
+            return
+        if self._current is not None:
+            self._current.on_keyboard_interupted(self, listener)
+        self._current = listener
+        self._current.on_keyboard_started(self)
+    def end_keyboard(self, listener:KeyboardListener):
+        """
+        Stops listening for keyboard events with the specified listener.
+        
+        Args:
+            listener (KeyboardListener): The listener to stop handling keyboard events.
+        
+        Raises:
+            TypeError: If the listener is not an instance of KeyboardListener.
+        """
+        if not isinstance(listener, KeyboardListener):
+            raise TypeError("listener must be an instance of KeyboardListener.")
+        
+        if self._current != listener:
+            return
+        self._current.on_keyboard_ended(self)
+        self._current = None
 
 class KeyboardEvent():
-    pass
+    def __init__(self, event:pygame.event.Event, last:KeyboardEvent=None):
+        """
+        Initializes a keyboard event.
+        
+        Args:
+            event (pygame.event.Event): The pygame event to convert.
+        
+        Raises:
+            TypeError: If the event is not a pygame event.
+        """
 
-class KeyboardListener():
-    pass
+        self._key = event.unicode
+        self._key_code = event.key
+        self._time = event.timestamp
+        self._last:KeyboardEvent = last
+    
+    @property
+    def key(self) -> str:
+        """
+        Gets the key that was pressed.
+        
+        Returns:
+            str: The key that was pressed.
+        """
+        return self._key
+    @property
+    def key_code(self) -> int:
+        """
+        Gets the key code of the pressed key.
+
+        Returns:
+            int: The key code of the pressed key.
+        """
+        return self._key_code
+    @property
+    def time(self) -> float:
+        """
+        Gets the time when the key was pressed.
+        
+        Returns:
+            float: The time when the key was pressed.
+        """
+        return self._time
+    def is_pressed(self) -> bool:
+        """
+        Checks if the key is currently pressed.
+        
+        Returns:
+            bool: True if the key is pressed, False otherwise.
+        """
+        return self.last is not None
+    @property
+    def is_modifier(self) -> bool:
+        """
+        Checks if the key is a modifier key (e.g., Shift, Ctrl, Alt).
+        
+        Returns:
+            bool: True if the key is a modifier key, False otherwise
+        """
+        return self._key_code in (pygame.K_LSHIFT, pygame.K_RSHIFT, pygame.K_LCTRL, pygame.K_RCTRL, pygame.K_LALT, pygame.K_RALT, pygame.K_LMETA, pygame.K_RMETA)
+    def is_key(self, key:str|int|KeyboardEvent) -> bool:
+        """
+        Checks if the key matches the specified key.
+        
+        Args:
+            key (str|int): The key to check against.
+            
+        Returns:
+            bool: True if the key matches, False otherwise.
+        """
+        if isinstance(key, KeyboardEvent):
+            return self._key == key.key and self._key_code == key.key_code
+        return self._key == key or self._key_code == key
+class KeyboardListener(ABC):
+    """
+    Abstract base class for keyboard listeners.
+    Subclasses should implement the on_key_event method to handle keyboard events.
+    """
+    @abstractmethod
+    def on_key_event(self, event:KeyboardEvent):
+        """
+        Abstract method to handle keyboard events.
+        
+        Args:
+            event (KeyboardEvent): The keyboard event to handle.
+        """
+        pass
+    @abstractmethod
+    def on_keyboard_started(self, keyboard:Keyboard) -> None:
+        """
+        Callback for when the keyboard listener is started.
+        This can be overridden by subclasses to perform custom actions.
+        
+        Args:
+            keyboard (Keyboard): The keyboard object that started the listener.
+        """
+        pass
+    @abstractmethod
+    def on_keyboard_ended(self, keyboard:Keyboard) -> None:
+        """
+        Callback for when the keyboard listener is stopped.
+        This can be overridden by subclasses to perform custom actions.
+        
+        Args:
+            keyboard (Keyboard): The keyboard object that stopped the listener.
+        """
+        pass
+    @abstractmethod
+    def on_keyboard_interupted(self, keyboard:Keyboard, cause:KeyboardListener) -> None:
+        """
+        Callback for when the keyboard listener is interrupted by another listener.
+        This can be overridden by subclasses to perform custom actions.
+        
+        Args:
+            keyboard (Keyboard): The keyboard object that was interrupted.
+            cause (KeyboardListener): The listener that caused the interruption.
+        """
+        pass
 
 root = YuiRoot()
 yui = Yui(root)
