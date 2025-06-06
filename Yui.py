@@ -2,10 +2,13 @@
 # Changelog
 # |    Version 0.1
 # |    |    Initial creation
+# |    Version 0.1.1
+# |    |    Added Button and Switch
 # TODO:
 # |    Resizable
 # |    GPU drawing (with GL)
 # |    Basic UI elements
+# |    UI elements: Stack, TextField, Slider, InfiniteCanvas
 
 from __future__ import annotations
 import time
@@ -621,7 +624,7 @@ class Color(pygame.Color):
         """
         r, g, b = colorsys.hsv_to_rgb(h, s, b)
         return cls(int(r * 255), int(g * 255), int(b * 255), a)
-    
+
 # ---------------------
 # Graphics
 # ---------------------
@@ -741,7 +744,9 @@ class Graphics(pygame.surface.Surface):
             Matrix2D: The last transformation matrix.
         """
         return self._transforms[-1]
-    
+    @last_transform.setter
+    def last_transform(self, value:Matrix2D):
+        self._transforms[-1] = value
     
     @staticmethod
     def _coordinates(mode:str, x1:float, y1:float, x2:float, y2:float) -> tuple:
@@ -3327,12 +3332,19 @@ class YuiRoot(Yui):
         self._auto_draw_bounds = False
         self._is_resizable = is_resizable
 
-    def yui_at_point(self, point:Vector2D|tuple, extends, exclude:list[Yui]=[], current:Yui=None) -> 'Yui':
+    @property
+    def mouse(self):
+        return self._mouse
+    @property
+    def keyboard(self):
+        return self._keyboard
+    
+    def yui_at_point(self, point:Vector2D, extends, exclude:list[Yui]=[], current:Yui=None) -> 'Yui':
         """
         Searches for a Yui element at the given point in world coordinates.
         
         Args:
-            point (Vector2D|tuple): The point in world coordinates to search for a Yui element.
+            point (Vector2D): The point in world coordinates to search for a Yui element.
             extends (type): The type of Yui element to search for.
             exclude (list[Yui], optional): A list of Yui elements to exclude from the search. Defaults to an empty list.
             current (Yui, optional): The current Yui element being checked. Defaults to self.
@@ -3473,6 +3485,17 @@ class Mouse:
         self._last_pressed_alt:'MouseEvent' = None
         self._last:'MouseEvent' = None
         self._current:'MouseEvent' = None
+    
+    @property
+    def current(self):
+        return self._current
+    @property
+    def last(self):
+        return self._last
+    @property
+    def pressed(self):
+        return self._pressed
+    
     def mouse_pressed(self, event:pygame.event.Event):
         """
         Handles mouse pressed events.
@@ -3488,7 +3511,7 @@ class Mouse:
         last = self._current if self._current and self._current.any_button_down else None
         yui_event = MouseEvent(self, Vector2D(*event.pos), 0, mouse_event | mouse_button, last=last)
         
-        pointed = self._root.yui_at_point(event.pos, MouseListener)
+        pointed = self._root.yui_at_point(Vector2D(*event.pos), MouseListener)
         if pointed is None:
             return
         
@@ -3507,7 +3530,7 @@ class Mouse:
         
         if self._current is None:
             self._current = yui_event
-        self.last = self._current
+        self._last = self._current
         self._current = yui_event
 
         self._pressed = pointed
@@ -3565,7 +3588,7 @@ class Mouse:
         
         # Move
         if self._pressed is None:
-            pointed = self._root.yui_at_point(event.pos, MouseListener)
+            pointed = self._root.yui_at_point(Vector2D(*event.pos), MouseListener)
             if pointed is not None:
                 pointed.on_mouse_event(yui_event.to_local(pointed))
         # Drag
@@ -3924,7 +3947,7 @@ class Keyboard():
         self._keys.remove(corresponding_key)
         key_event = KeyboardEvent(event, last=corresponding_key)
         if self._current is not None:
-            self._current.on_key_event()
+            self._current.on_key_event(key_event)
     
     def start_keyboard(self, listener:KeyboardListener):
         """
@@ -3977,7 +4000,7 @@ class KeyboardEvent():
 
         self._key = event.unicode
         self._key_code = event.key
-        self._time = event.timestamp
+        self._time = time.time()
         self._last:KeyboardEvent = last
     
     @property
@@ -4007,6 +4030,7 @@ class KeyboardEvent():
             float: The time when the key was pressed.
         """
         return self._time
+    @property
     def is_pressed(self) -> bool:
         """
         Checks if the key is currently pressed.
@@ -4014,7 +4038,7 @@ class KeyboardEvent():
         Returns:
             bool: True if the key is pressed, False otherwise.
         """
-        return self.last is not None
+        return self._last is not None
     @property
     def is_modifier(self) -> bool:
         """
@@ -4082,4 +4106,105 @@ class KeyboardListener(ABC):
             keyboard (Keyboard): The keyboard object that was interrupted.
             cause (KeyboardListener): The listener that caused the interruption.
         """
+        pass
+
+class Button(Yui, MouseListener):
+    """
+    A simple button UI element that responds to mouse events.
+    """
+    def __init__(self, parent:Yui, label:str="Button", texture:pygame.Surface=None):
+        super().__init__(parent)
+        self.label = label
+        self.texture = texture
+    
+    @property
+    def is_hovered(self):
+        return self.root.mouse.current and self.is_in_local_bounds(self.root.mouse.current.to_local().point)
+    @property
+    def is_pressed(self):
+        return self.root.mouse.pressed == self
+
+    def on_draw(self, graphics:Graphics):
+        # Background color changes on hover/press
+        if self.is_pressed:
+            bg = Color(180, 180, 180)
+        elif self.is_hovered:
+            bg = Color(210, 210, 210)
+        else:
+            bg = Color(240, 240, 240)
+        graphics.fill_color = bg
+        graphics.stroke_color = Color(60, 60, 60)
+        graphics.rect_mode = 'corner'
+        graphics.rectangle(0, 0, self.width, self.height)
+
+        # Draw texture if provided, else label
+        if self.texture is not None:
+            # Center the texture in the button
+            tw, th = self.texture.get_width(), self.texture.get_height()
+            tx = (self.width - tw) / 2
+            ty = (self.height - th) / 2
+            graphics.image(self.texture, tx, ty)
+        else:
+            graphics.fill_color = Color(0, 0, 0)
+            graphics.text_size = 16
+            graphics.text_align = (0, 0)
+            tw = graphics._text_font.size(self.label)[0]
+            th = graphics._text_font.size(self.label)[1]
+            tx = (self.width - tw) / 2
+            ty = (self.height - th) / 2
+            graphics.text(self.label, tx, ty)
+
+    def on_mouse_event(self, event:MouseEvent):
+        if event.is_released_event and event.is_left_event:
+            self.on_click(self)
+    
+    def on_click(self):
+        pass
+
+class Switch(Yui, MouseListener):
+    """
+    A simple rectangular switch UI element (toggle button).
+    """
+    def __init__(self, parent:Yui, checked:bool=False):
+        super().__init__(parent)
+        self.checked = checked
+    
+    @property
+    def is_hovered(self):
+        return self.root.mouse.current and self.is_in_local_bounds(self.root.mouse.current.to_local(self).point)
+    @property
+    def is_pressed(self):
+        return self.root.mouse.pressed == self
+
+    def on_draw(self, graphics:Graphics):
+        # Draw background
+        if self.is_pressed:
+            bg = Color(180, 220, 180) if self.checked else Color(220, 180, 180)
+        elif self.is_hovered:
+            bg = Color(200, 240, 200) if self.checked else Color(240, 200, 200)
+        else:
+            bg = Color(180, 255, 180) if self.checked else Color(255, 180, 180)
+        graphics.fill_color = bg
+        graphics.stroke_color = Color(60, 60, 60)
+        graphics.rect_mode = 'corner'
+        graphics.rectangle(0, 0, self.width, self.height)
+
+        # Draw indicator rectangle
+        margin = min(self.width, self.height) * 0.15
+        knob_w = (self.width - 2 * margin) * 0.45
+        knob_h = self.height - 2 * margin
+        if self.checked:
+            knob_x = self.width - margin - knob_w
+        else:
+            knob_x = margin
+        knob_y = margin
+        graphics.fill_color = Color(80, 80, 80)
+        graphics.rectangle(knob_x, knob_y, knob_w, knob_h)
+
+    def on_mouse_event(self, event:MouseEvent):
+        if event.is_released_event and event.is_left_event:
+            self.checked = not self.checked
+            self.on_toggle(self.checked)
+    
+    def on_toggle(self, value:bool):
         pass
