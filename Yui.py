@@ -1,14 +1,17 @@
 # Version 0.1
 # Changelog
-# |    Version 0.1
-# |    |    Initial creation
-# |    Version 0.1.1
-# |    |    Added Button and Switch
+# |   Version 0.1
+# |   |   Initial creation
+# |   Version 0.1.1
+# |   |   Added Button and Switch
+# |   Version 0.1.2
+# |   |   Bug Fixes:
+# |   |   |   text displayed in the wrong place
 # TODO:
-# |    Resizable
-# |    GPU drawing (with GL)
-# |    Basic UI elements
-# |    UI elements: Stack, TextField, Slider, InfiniteCanvas
+# |   Resizable
+# |   GPU drawing (with GL)
+# |   Basic UI elements
+# |   UI elements: Stack, TextField, Slider, InfiniteCanvas
 
 from __future__ import annotations
 import time
@@ -882,8 +885,7 @@ class Graphics(pygame.surface.Surface):
         Raises:
             ValueError: If the alignment is not 0 or 1.
         """
-        if align not in [0, 1]:
-            raise ValueError("text_align_x must be 0 (left) or 1 (right).")
+        align = max(0, min(1, align))
         self._text_align_x = align
         
     @property
@@ -906,8 +908,7 @@ class Graphics(pygame.surface.Surface):
         Raises:
             ValueError: If the alignment is not 0 or 1.
         """
-        if align not in [0, 1]:
-            raise ValueError("text_align_y must be 0 (top) or 1 (bottom).")
+        align = max(0, min(1, align))
         self._text_align_y = align
     
     @property
@@ -1549,7 +1550,7 @@ class Graphics(pygame.surface.Surface):
             # Calculate position based on alignment
             left = self._text_align_x * (self.width - text_surface.get_width())
             top = self._text_align_y * (self.height - text_surface.get_height())
-            position = (x + left, y + top)
+            position = (left, top)
             
             transformed_points = [self.last_transform @ vector for vector in [
                 Vector2D(position[0], position[1] + line_offset * i),
