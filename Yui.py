@@ -7,6 +7,19 @@
 # |   Version 0.1.2
 # |   |   Bug Fixes:
 # |   |   |   text displayed in the wrong place
+# |   Version 0.1.3
+# |   |   Yui:
+# |   |   |   Added Yui.local_subtree_bounds and Yui.global_subtree_bounds
+# |   |   Stack:
+# |   |   |   Added Stack
+# |   |   Graphics:
+# |   |   |   Added Graphics.text_width
+# |   |   TextField:
+# |   |   |   Added TextField
+# |   |   Mouse & MouseEvent:
+# |   |   |   Added Mouse.pass_event, MosueEvent.to_world and MouseEvent.pass_to
+# |   |   Switch:
+# |   |   |   Added radio feature
 # TODO:
 # |   Resizable
 # |   GPU drawing (with GL)
@@ -21,12 +34,9 @@ import pygame
 from abc import ABC, abstractmethod
 import colorsys
 import threading
+from enum import Enum
 
-# TODO: Remove Surface as an argument to Graphics __new__
-
-# ---------------------
-# Utils
-# ---------------------
+# === Utils ===
 
 class Matrix2D(np.ndarray):
     """
@@ -628,9 +638,7 @@ class Color(pygame.Color):
         r, g, b = colorsys.hsv_to_rgb(h, s, b)
         return cls(int(r * 255), int(g * 255), int(b * 255), a)
 
-# ---------------------
-# Graphics
-# ---------------------
+# === Graphics === 
 
 # Global flag to determine if OpenGL should be used
 _use_gl = False  # Default to not using OpenGL
@@ -695,13 +703,10 @@ class Graphics(pygame.surface.Surface):
         self._text_align_y = 0  # Vertical text alignment (0: top, 1: bottom)
         self._text_size = 12  # Default text size
         self._text_font_path = None
-        self._text_font = None
         self.text_font = None
         self._text_leading = 0  # Default text leading (line spacing)
         
         self._curve_detail = 100  # Default curve detail for bezier curves
-        
-        print(self.get_at((0, 0)))
     
     def __array_finalize__(self, obj) -> None:
         if obj is None: return
@@ -1577,6 +1582,8 @@ class Graphics(pygame.surface.Surface):
         """
         return pygame.font.get_fonts()
     
+    def text_width(self, text: str) -> int:
+        return self._text_font.size(text)[0]
     
     # Transformations
     def push_matrix(self) -> None:
@@ -1758,6 +1765,7 @@ class Graphics(pygame.surface.Surface):
             self.blit(temp, (0, 0))
 # TODO: Implement Shape drawing logic in Graphics
 
+# === Animation ===
 class Animation:
     # Static class with nested classes like Ease, Formula, Keyframe, Envelope and Timeline.
     @staticmethod
@@ -2199,7 +2207,8 @@ class LiveValue:
         return final_value
 Animation.LiveValue = LiveValue; del LiveValue
 
-# YuiElement
+
+# === Yui ===
 class Yui:
     def __init__(self, parent:Yui):
         # --- Transform ---
@@ -2424,7 +2433,7 @@ class Yui:
         last_ax = self.ax
         if not isinstance(value, (int, float)):
             raise TypeError("ax must be a number.")
-        self._ax = value
+        self._ax = max(0, min(1, value))
         self._needs_local_matrix_update = True
         self.on_transform_changed(self.x, self.y, self.r, self.sx, self.sy, last_ax, self.ay)
     @property
@@ -2447,7 +2456,7 @@ class Yui:
         last_ay = self.ay
         if not isinstance(value, (int, float)):
             raise TypeError("ay must be a number.")
-        self._ay = value
+        self._ay = max(0, min(1, value))
         self._needs_local_matrix_update = True
         self.on_transform_changed(self.x, self.y, self.r, self.sx, self.sy, self.ax, last_ay)
     @property
@@ -2574,10 +2583,6 @@ class Yui:
 
         if self._needs_local_matrix_update:
             self._local_matrix = Matrix2D.identity()
-            # self._local_matrix = self._local_matrix.translate(self._x, self._y)
-            # self._local_matrix = self._local_matrix.rotate(self._r)
-            # self._local_matrix = self._local_matrix.translate(-self._ax * self._width * self._sx, -self._ay * self._height * self._sy)
-            # self._local_matrix = self._local_matrix.scale(self._sx, self._sy)
             self._local_matrix = self._local_matrix.translate(self._x, self._y)
             self._local_matrix = self._local_matrix.rotate(self._r)
             self._local_matrix = self._local_matrix.translate(-self._ax * self._width * self._sx, -self._ay * self._height * self._sy)
@@ -2687,6 +2692,31 @@ class Yui:
             return (tp.x, tp.y)
         else:
             raise TypeError("point must be a Vector2D or a tuple of two numbers.")
+    def to_parent(self, point:Vector2D|tuple) -> Vector2D|tuple:
+        """
+        Converts a point from this element's local coordinates to its parent's local coordinates.
+
+        Args:
+            point (Vector2D|tuple): The point in this element's local coordinates.
+
+        Returns:
+            Vector2D|tuple: The point in the parent's local coordinates.
+        """
+        if self._parent is None:
+            # No parent, so local == parent space
+            if isinstance(point, Vector2D):
+                return point
+            elif isinstance(point, tuple) and len(point) == 2:
+                return point
+            else:
+                raise TypeError("point must be a Vector2D or a tuple of two numbers.")
+        if isinstance(point, Vector2D):
+            return self._local_matrix @ point
+        elif isinstance(point, tuple) and len(point) == 2:
+            tp = self._local_matrix @ Vector2D(*point)
+            return (tp.x, tp.y)
+        else:
+            raise TypeError("point must be a Vector2D or a tuple of two numbers.")
     def is_in_local_bounds(self, point:Vector2D|tuple) -> bool:
         """
         Checks if a point is within the local bounds of this Yui element.
@@ -2736,7 +2766,58 @@ class Yui:
         r = max([v.x for v in ar])
         b = max([v.y for v in ar])
         return (l, t, r, b)
+    @property
+    def local_subtree_bounds(self) -> tuple[float, float, float, float]:
+        """
+        Gets the axis-aligned bounding box of this element and all descendants in local coordinates.
 
+        Returns:
+            tuple: (min_x, min_y, max_x, max_y) in local coordinates.
+        """
+        # Start with this element's local bounding box
+        l, t, r, b = self.local_bounds
+        min_x, min_y = l, t
+        max_x, max_y = r, b
+
+        # Expand to include all children's subtree bounds (converted to our local space)
+        for child in self._children:
+            cl, ct, cr, cb = child.local_subtree_bounds
+            # Convert each corner of the child's subtree bounds to our local space
+            corners = [
+                child.to_parent(Vector2D(cl, ct)),
+                child.to_parent(Vector2D(cr, ct)),
+                child.to_parent(Vector2D(cr, cb)),
+                child.to_parent(Vector2D(cl, cb)),
+            ]
+            xs = [c.x for c in corners]
+            ys = [c.y for c in corners]
+            min_x = min(min_x, *xs)
+            min_y = min(min_y, *ys)
+            max_x = max(max_x, *xs)
+            max_y = max(max_y, *ys)
+        
+        return (min_x, min_y, max_x, max_y)
+    @property
+    def world_subtree_bounds(self) -> tuple[float, float, float, float]:
+        """
+        Gets the axis-aligned bounding box of this element and all descendants in world coordinates.
+
+        Returns:
+            tuple: (min_x, min_y, max_x, max_y) in world coordinates.
+        """
+        # Get local subtree bounds
+        min_x, min_y, max_x, max_y = self.local_subtree_bounds
+        # Convert all four corners to world coordinates
+        corners = [
+            self.to_world((min_x, min_y)),
+            self.to_world((max_x, min_y)),
+            self.to_world((max_x, max_y)),
+            self.to_world((min_x, max_y)),
+        ]
+        xs = [c.x for c in corners]
+        ys = [c.y for c in corners]
+        return (min(xs), min(ys), max(xs), max(ys))
+    
     # --- Hierarchy ---
     @property
     def parent(self) -> 'Yui':
@@ -2862,7 +2943,7 @@ class Yui:
                 self._parent.on_child_added(self, index)
             elif self._parent == parent:
                 old_index = self._parent._children.index(self)
-                new_index = max(0, min(self._parent.child_count - 1, index))
+                new_index = max(0, min(self._parent.child_count - 1, index if index is not None else self._parent.child_count - 1))
                 if not self._parent.can_child_be_moved(self, old_index, new_index): # No change if not allowed to move
                     return
                 self._parent._children.remove(self)
@@ -3131,7 +3212,7 @@ class Yui:
         name = self.__class__.__name__
         bounds = self.world_bounds
         # Hue based on depth
-        color = Color.from_hsb(self.depth / 10.0) # Normalize depth to a hue value
+        color = Color(255, 255, 255, 255) # Normalize depth to a hue value
 
         graphics.fill_color = Color(0, 0, 0, 0) # Transparent fill for bounds
         graphics.stroke_color = color # Stroke color based on depth
@@ -3218,6 +3299,20 @@ class Yui:
         Args:
             child (Yui): The child element to check.
             index (int): The index of the child to remove.
+        
+        Returns:
+            bool: True if the child can be removed, False otherwise.
+        """
+        return True
+    def can_child_be_moved(self, child:Yui, index_from:int, index_to:int) -> bool:
+        """
+        Checks if a child Yui element can be removed from this Yui element at the specified index.
+        This can be overridden by subclasses to implement custom logic.
+        
+        Args:
+            child (Yui): The child element to check.
+            index (int): The index of the child to move from.
+            index (int): The index of the child to move to.
         
         Returns:
             bool: True if the child can be removed, False otherwise.
@@ -3332,6 +3427,7 @@ class YuiRoot(Yui):
         
         self._auto_draw_bounds = False
         self._is_resizable = is_resizable
+        self._auto_background = None
 
     @property
     def mouse(self):
@@ -3415,7 +3511,6 @@ class YuiRoot(Yui):
                     self._mouse.mouse_moved(event)
                 elif event.type == pygame.MOUSEWHEEL:
                     self._mouse.mouse_wheel(event)
-                # TODO: Keyboard events
                 elif event.type == pygame.KEYDOWN:
                     self._keyboard.key_pressed(event)
                 elif event.type == pygame.KEYUP:
@@ -3455,16 +3550,33 @@ class YuiRoot(Yui):
             pygame.display.flip()
             clock.tick(self._framerate)
 
+    def draw(self, graphics):
+        self._window_graphics.reset_matrix()
+        if self._auto_draw_bounds:
+            with graphics.push_matrix():
+                self.draw_bounds(graphics)
+        if isinstance(self._auto_background, Color):
+            graphics.background(self._auto_background)
+        return super().draw(graphics)
+    
     def _do_debug(self, graphics):
         if self._auto_draw_bounds:
             self.draw_bounds(graphics)
     @property
-    def auto_draw_bounds(self, draw:bool) -> bool:
+    def auto_draw_bounds(self) -> bool:
         return self._auto_draw_bounds
     @auto_draw_bounds.setter
     def auto_draw_bounds(self, value:bool):
         self._auto_draw_bounds = value
+    @property
+    def auto_background(self) -> Color:
+        return self._auto_background
+    @auto_background.setter
+    def auto_background(self, value: Color):
+        if isinstance(value, Color) or value is None:
+            self._auto_background = value
 
+# === IO ===
 class Mouse:
     def __init__(self, root:YuiRoot):
         """
@@ -3496,6 +3608,9 @@ class Mouse:
     @property
     def pressed(self):
         return self._pressed
+    @property
+    def root(self):
+        return self._root
     
     def mouse_pressed(self, event:pygame.event.Event):
         """
@@ -3600,7 +3715,6 @@ class Mouse:
         last = self._current if self._current and self._current.any_button_down else None
         scroll = event.y if hasattr(event, "y") else 0
         yui_event = MouseEvent(self, last.point if last else Vector2D(0, 0), scroll, mouse_event, last=last)
-        print("Yui Event:", yui_event.is_wheel_event, yui_event.event)
         
         if self._current is None:
             self._current = yui_event
@@ -3608,13 +3722,21 @@ class Mouse:
         self._current = yui_event
 
         if self._pressed is None:
-            print(yui_event.point, yui_event.scroll, hex(yui_event.event))
             pointed = self._root.yui_at_point(yui_event.point, MouseListener)
             if pointed is not None:
                 pointed.on_mouse_event(yui_event.to_local(pointed))
         else:
             self._pressed.on_mouse_event(yui_event.to_local(self._pressed))
-  
+    
+    def pass_event(self, event: MouseEvent, yui: MouseListener = None):
+        if not self._pressed:
+            return
+        yui = self._root.yui_at_point(self._pressed.to_world(event.point), extends=MouseListener, exclude=[self])
+        if not yui:
+            return
+        yui.on_mouse_event(event.to_world(yui).pass_to(yui))
+        self._pressed = yui
+        
 class MouseEvent:
     LEFT = 0x1
     RIGHT = 0x2
@@ -3648,13 +3770,28 @@ class MouseEvent:
                 self.down = last.down | ~(event & MouseEvent.BUTTON_MASK)
         self.timestamp = time.time() if timestamp is None else timestamp
         self.last = last
+        self._passed = None
     
-    def to_local(self, yui:Yui):
+    def to_local(self, yui:MouseListener):
         transformed = yui.to_local(self.point)
         local = MouseEvent(self.mouse, transformed, self.scroll, self.event, self.timestamp)
         local.down = self.down
         local.last = self.last
         return local
+    def to_world(self, yui:MouseListener):
+        transformed = yui.to_world(self.point)
+        local = MouseEvent(self.mouse, transformed, self.scroll, self.event, self.timestamp)
+        local.down = self.down
+        local.last = self.last
+        return local
+    def pass_to(self, yui: MouseListener):
+        passed = MouseEvent(self.mouse, self.point, self.scroll, self.event, self.timestamp)
+        passed.down = self.down
+        passed.last = self.last
+        passed._passed = yui
+        return passed
+    
+    @staticmethod
     def mouse_button(button:int) -> int:
         """
         Gets the mouse button event type based on the button number.
@@ -3674,6 +3811,13 @@ class MouseEvent:
         else:
             return MouseEvent.ALT
 
+    @property
+    def is_passed(self) -> bool:
+        return self._passed is not None
+    @property
+    def passed_from(self) -> MouseListener|None:
+        return self._passed
+    
     # --- Event Type Properties ---
     @property
     def is_pressed_event(self) -> bool:
@@ -3883,7 +4027,6 @@ class MouseListener(ABC):
         """
         pass
 
-
 class Keyboard():
     def __init__(self, root:YuiRoot):
         self._root = root
@@ -3921,7 +4064,7 @@ class Keyboard():
         if not isinstance(event, pygame.event.Event):
             raise TypeError("event must be a pygame.event.Event.")
         
-        key_event = KeyboardEvent(event)
+        key_event = KeyboardEvent(self, event)
         if any([key_event.is_key(k) for k in self._keys]):
             return
         self._keys.append(key_event)
@@ -3937,7 +4080,7 @@ class Keyboard():
         if not isinstance(event, pygame.event.Event):
             raise TypeError("event must be a pygame.event.Event.")
         
-        key_event = KeyboardEvent(event)
+        key_event = KeyboardEvent(self, event)
         corresponding_key = None
         for i in range(len(self._keys)):
             if self._keys[i].is_key(key_event):
@@ -3946,7 +4089,7 @@ class Keyboard():
         if corresponding_key is None:
             return
         self._keys.remove(corresponding_key)
-        key_event = KeyboardEvent(event, last=corresponding_key)
+        key_event = KeyboardEvent(self, event, last=corresponding_key)
         if self._current is not None:
             self._current.on_key_event(key_event)
     
@@ -3988,7 +4131,7 @@ class Keyboard():
         self._current = None
 
 class KeyboardEvent():
-    def __init__(self, event:pygame.event.Event, last:KeyboardEvent=None):
+    def __init__(self, keyboard:Keyboard, event:pygame.event.Event, last:KeyboardEvent=None):
         """
         Initializes a keyboard event.
         
@@ -3999,11 +4142,15 @@ class KeyboardEvent():
             TypeError: If the event is not a pygame event.
         """
 
+        self._keyboard = keyboard
         self._key = event.unicode
         self._key_code = event.key
         self._time = time.time()
         self._last:KeyboardEvent = last
     
+    @property
+    def keyboard(self):
+        return self._keyboard
     @property
     def key(self) -> str:
         """
@@ -4109,6 +4256,7 @@ class KeyboardListener(ABC):
         """
         pass
 
+# === Quick Implementations ===
 class Button(Yui, MouseListener):
     """
     A simple button UI element that responds to mouse events.
@@ -4166,9 +4314,38 @@ class Switch(Yui, MouseListener):
     """
     A simple rectangular switch UI element (toggle button).
     """
-    def __init__(self, parent:Yui, checked:bool=False):
+    
+    class Radio:
+        def __init__(self):
+            self.switches = []
+        
+        def __len__(self):
+            return len(self.switches)
+
+        def __getitem__(self, idx):
+            return self.switches[idx]
+
+        def __iter__(self):
+            return iter(self.switches)
+            
+        def add(self, switch: Switch):
+            if switch not in self.switches:
+                self.switches.append(switch)
+
+        def remove(self, switch: Switch):
+            if switch in self.switches:
+                self.switches.remove(switch)
+        
+        def on_switched(self, switched: Switch):
+            for s in self.switches:
+                if s is not switched and s.checked:
+                    s.checked = False
+                    s.on_toggle(False)
+    
+    def __init__(self, parent:Yui, checked:bool=False, radio: 'Switch.Radio'|None = None):
         super().__init__(parent)
         self.checked = checked
+        self.radio = radio
     
     @property
     def is_hovered(self):
@@ -4206,6 +4383,286 @@ class Switch(Yui, MouseListener):
         if event.is_released_event and event.is_left_event:
             self.checked = not self.checked
             self.on_toggle(self.checked)
+            if self.radio:
+                self.radio.on_switched(self)
     
     def on_toggle(self, value:bool):
         pass
+
+class Stack(Yui):
+    def __init__(self, parent: Yui, is_vertical: bool = True):
+        super().__init__(parent)
+        
+        self._is_vertical = is_vertical
+        self._stack_align = 0.0
+        self._stack_margin = 0.0
+    
+    @property
+    def is_vertical(self) -> bool:
+        return self._is_vertical
+    
+    @property
+    def stack_align(self) -> float:
+        return self._stack_align
+    @stack_align.setter
+    def stack_align(self, value:float):
+        self._stack_align = max(0, min(1, value))
+    @property
+    def stack_margin(self) -> float:
+        return self._stack_margin
+    @stack_margin.setter
+    def stack_margin(self, value:float):
+        self._stack_margin = value
+    
+    def on_draw(self, graphics: Graphics):
+        subtree_rectangles = []
+        local_rectangles = []
+        anchors = []
+        
+        for i, child in enumerate(self._children):
+            subtree = child.local_subtree_bounds
+            points = [
+                child.to_parent(Vector2D(subtree[0], subtree[1])),
+                child.to_parent(Vector2D(subtree[2], subtree[1])),
+                child.to_parent(Vector2D(subtree[0], subtree[3])),
+                child.to_parent(Vector2D(subtree[2], subtree[3]))
+            ]
+            subtree = (
+                min([p.x for p in points]),
+                min([p.y for p in points]),
+                max([p.x for p in points]),
+                max([p.y for p in points]),
+            )
+            subtree_rectangles.append(subtree)
+            
+            local = child.local_bounds
+            points = [
+                child.to_parent(Vector2D(local[0], local[1])),
+                child.to_parent(Vector2D(local[2], local[1])),
+                child.to_parent(Vector2D(local[0], local[3])),
+                child.to_parent(Vector2D(local[2], local[3]))
+            ]
+            local = (
+                min([p.x for p in points]),
+                min([p.y for p in points]),
+                max([p.x for p in points]),
+                max([p.y for p in points]),
+            )
+            local_rectangles.append(local)
+            
+            anchor = Vector2D(child.ax * child.width, child.ay * child.height)
+            anchor = child.to_parent(anchor)
+            anchors.append(anchor)
+            
+        width = max([r[2] - r[0] for r in subtree_rectangles])
+        height = max([r[3] - r[1] for r in subtree_rectangles])
+        
+        coord = 0.0
+        for i, (subtree, local, anchor, child) in enumerate(zip(subtree_rectangles, local_rectangles, anchors, self._children)):
+            if self._is_vertical:
+                offset_x = (width - (subtree[2] - subtree[0])) * self._stack_align
+                child.x = offset_x + (anchor.x - subtree[0])
+                child.y = coord + (anchor.y - subtree[1])
+                coord += subtree[3] - subtree[1] + self._stack_margin
+            else:
+                offset_y = (height - (subtree[3] - subtree[1])) * self._stack_align
+                child.y = offset_y + (anchor.y - subtree[1])
+                child.x = coord + (anchor.x - subtree[0])
+                coord += subtree[2] - subtree[0] + self._stack_margin
+
+class TextField(Yui, MouseListener, KeyboardListener):
+    def __init__(self, parent: Yui, is_editable: bool = True):
+        super().__init__(parent)
+        self._default_text = ""
+        self._cursor = 0
+        self._input_text = ""
+        
+        self._text_color = Color(0, 0, 0)
+        self._is_editable = is_editable
+        self._cursor = 0
+        
+        self._clickthrough = None
+    
+    @property
+    def is_editable(self) -> bool:
+        return self._is_editable
+
+    @is_editable.setter
+    def is_editable(self, value: bool):
+        self._is_editable = value
+
+    @property
+    def cursor(self) -> int:
+        return self._cursor
+
+    @cursor.setter
+    def cursor(self, value: int):
+        self._cursor = max(0, min(value, len(self._input_text)))
+
+    @property
+    def default_text(self) -> str:
+        return self._default_text
+
+    @default_text.setter
+    def default_text(self, value: str):
+        self._default_text = value
+
+    @property
+    def input_text(self) -> str:
+        return self._input_text
+
+    @input_text.setter
+    def input_text(self, value: str):
+        if not self._is_editable:
+            raise ValueError("Cannot set input_text on a non-editable TextField.")
+
+        if value != self._input_text:
+            previous = self._input_text
+            self._input_text = value
+            self.cursor = self.cursor
+
+            if self.is_focused:
+                self.on_text_changed(previous)
+            else:
+                self.on_text_finalized(previous, interupted=False)
+    
+    @property
+    def text_color(self) -> Color:
+        return self._text_color
+
+    @text_color.setter
+    def text_color(self, value: Color):
+        self._text_color = value
+
+    @property
+    def is_focused(self) -> bool:
+        return not self.is_destroyed and self.root.keyboard.listener == self
+
+    def on_draw(self, graphics: Graphics):
+        text_to_draw = self._input_text if self._input_text else self._default_text
+
+        graphics.fill_color = self._text_color
+        graphics.text_size = self.height
+        graphics.text_align_x = 0
+        graphics.text_align_y = 0
+
+        graphics.text(text_to_draw, 0, 0)
+
+        if self.is_focused and self.is_editable:
+            caret_offset = graphics.text_width(self._input_text[:self._cursor])
+            graphics.line(caret_offset, 0, caret_offset, self.height)
+    
+    def on_mouse_event(self, event: MouseEvent):
+        if not event.is_pressed_event:
+            return
+
+        self.root.keyboard.start_keyboard(self)
+
+    def on_keyboard_started(self, mouse: Mouse):
+        if not self._is_editable:
+            self.root.keyboard.end_keyboard()
+        else:
+            self._last_input_text = self._input_text
+            self._clickthrough = self._new_clickthrough()
+    
+    def _new_clickthrough(self):
+        class _ClickThrough(Yui, MouseListener):
+            def __init__(self, text_field: TextField):
+                super().__init__(text_field.root)
+                
+                self.text_field = text_field
+            
+            def on_draw(self, graphics):
+                self.set_parent(self.root)
+                self.x, self.y, self.width, self.height = 0, 0, self.root.width, self.root.height
+            
+            def on_mouse_event(self, event):
+                if event.is_pressed_event:
+                    text_field_event = event.to_world(self).to_local(self.text_field)
+                    if self.text_field.is_in_local_bounds(text_field_event):
+                        event.mouse.pass_event(self.text_field)
+                    else:
+                        event.mouse.root.keyboard.end_keyboard()
+                        event.mouse.pass_event()
+        return _ClickThrough(self)
+
+    def on_keyboard_ended(self, mouse: Mouse):
+        self.on_text_finalized(self._last_input_text, interupted=False)
+        self._clickthrough.destroy()
+
+    def on_keyboard_interupted(self, mouse: Mouse, cause: KeyboardListener):
+        self.on_text_finalized(self._last_input_text, interupted=True)
+        self._clickthrough.destroy()
+
+    def on_key_event(self, event: KeyboardEvent):
+        if not self.is_editable or not self.is_focused:
+            return
+        
+        if not event.is_pressed:
+            return 
+
+        key = event.key_code
+        ctrl = pygame.K_LCTRL in event.keyboard.keys or pygame.K_RCTRL in event.keyboard.keys
+
+        # Cursor movement
+        if key == pygame.K_LEFT:
+            self.cursor -= 1
+        elif key == pygame.K_RIGHT:
+            self.cursor += 1
+        elif key in (pygame.K_HOME, pygame.K_UP):
+            self.cursor = 0
+        elif key in (pygame.K_END, pygame.K_DOWN):
+            self.cursor = len(self._input_text)
+
+        # Confirm or cancel input
+        elif key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_ESCAPE):
+            self.root.keyboard.end_keyboard()
+
+        # Delete backward
+        elif key == pygame.K_BACKSPACE and self.cursor > 0:
+            if ctrl:
+                start = self._find_previous_word_start(self._input_text, self.cursor)
+                self.input_text = self._input_text[:start] + self._input_text[self.cursor:]
+                self.cursor = start
+            else:
+                adjust = self.cursor != len(self._input_text)
+                self.input_text = self._input_text[:self.cursor - 1] + self._input_text[self.cursor:]
+                if adjust:
+                    self.cursor -= 1
+
+        # Delete forward
+        elif key == pygame.K_DELETE and self.cursor < len(self._input_text):
+            if ctrl:
+                end = self._find_next_word_end(self._input_text, self.cursor)
+                self.input_text = self._input_text[:self.cursor] + self._input_text[end:]
+            else:
+                self.input_text = self._input_text[:self.cursor] + self._input_text[self.cursor + 1:]
+
+        # Add character input
+        elif len(event.key) == 1 and event.key.isprintable():
+            self.input_text = self._input_text[:self.cursor] + event.key + self._input_text[self.cursor:]
+            self.cursor += 1
+
+    def _find_previous_word_start(self, text: str, index: int) -> int:
+        index -= 1
+        while index > 0 and text[index].isspace():
+            index -= 1
+        while index > 0 and not text[index - 1].isspace():
+            index -= 1
+        return max(index, 0)
+
+    def _find_next_word_end(self, text: str, index: int) -> int:
+        length = len(text)
+        while index < length and text[index].isspace():
+            index += 1
+        while index < length and not text[index].isspace():
+            index += 1
+        return index
+
+    # Callbacks to override or extend
+    def on_text_changed(self, previous: str):
+        pass
+
+    def on_text_finalized(self, previous: str, interupted: bool):
+        pass
+
