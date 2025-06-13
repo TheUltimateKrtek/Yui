@@ -20,6 +20,12 @@
 # |   |   |   Added Mouse.pass_event, MosueEvent.to_world and MouseEvent.pass_to
 # |   |   Switch:
 # |   |   |   Added radio feature
+# |   Version 0.1.4
+# |   |   Fixed TextField
+# |   |   Fixed Graphics.ellipse()
+# |   |   Fixed Yui.draw()
+# |   |   Added Slider
+# |   |   
 # TODO:
 # |   Resizable
 # |   GPU drawing (with GL)
@@ -1461,16 +1467,12 @@ class Graphics(pygame.surface.Surface):
         
         # Convert coordinates based on the current ellipse mode
         left, top, width, height = self._coordinates(self._ellipse_mode, x1, y1, x2, y2)
+        cx, cy = left + width * 0.5, top + height * 0.5
         
-        center = self.last_transform @ Vector2D(left + width / 2, top + height / 2)
-        vert_vector = self.last_transform @ Vector2D(0, height / 2)
-        horiz_vector = self.last_transform @ Vector2D(width / 2, 0)
-        
-        # Calculate the points of the ellipse
-        ellipse_points = []
-        for angle in np.linspace(0, 2 * np.pi, self._curve_detail):
-            point = center + vert_vector * np.sin(angle) + horiz_vector * np.cos(angle)
-            ellipse_points.append(point)
+        ellipse_points = [self.last_transform @ Vector2D(
+            cx + width * 0.5 * np.sin(2 * np.pi * i / self.curve_detail),
+            cy + height * 0.5 * np.cos(2 * np.pi * i / self.curve_detail)
+        ) for i in range(self.curve_detail)]
             
         # Fill the ellipse with the current fill color
         self._shape_fill(ellipse_points, self._fill_color)
@@ -4702,69 +4704,82 @@ class TextField(Yui, MouseListener, KeyboardListener):
         pass
 
 class Slider(Yui, MouseListener):
-    def __init__(self, parent: Yui, min_value: float = 0.0, max_value: float = 1.0, value: float = 0.5):
+    def __init__(self, parent: Yui, normalized_value: float = 0.5, range: tuple[float, float] = (0, 1), steps: int = 0):
         super().__init__(parent)
-        self.min_value = min_value
-        self.max_value = max_value
-        self.value = max(min_value, min(max_value, value))
-        self.dragging = False
-
+        self._normalized_value = max(0, min(1, normalized_value))
+        self._range = list(range)          
+        self._steps = 0 if steps < 2 else steps
+    @property
+    def dragging(self) -> bool:
+        return self.root.mouse.pressed == self
     @property
     def normalized_value(self) -> float:
-        if self.max_value == self.min_value:
-            return 0.0
-        return (self.value - self.min_value) / (self.max_value - self.min_value)
-
+        return self._normalized_value
     @normalized_value.setter
-    def normalized_value(self, nv: float):
-        nv = max(0.0, min(1.0, nv))
-        self.value = self.min_value + nv * (self.max_value - self.min_value)
-
+    def normalized_value(self, value: float):    
+        if self._steps >= 2:                
+            value = round(value * (self._steps - 1)) / (self._steps - 1)            
+        clamped = max(0, min(1, value))    
+        if clamped == self._normalized_value:
+            return        
+        old = self._normalized_value
+        self._normalized_value = clamped    
+        self.on_value_changed(old)                
+    @property                
+    def steps(self) -> int:                
+        return self._steps                
+    @steps.setter                
+    def steps(self, value: int):                
+        self._steps = 0 if value < 2 else value  
+    @property  
+    def normalized_step_size(self) -> float:  
+        return 1 / (self._steps - 1) if self._steps != 0 else 0
+    @property  
+    def step_size(self) -> float:  
+        return self.normalized_step_size * (self.maximum - self.minimum)  
+    @property
+    def minimum(self) -> float:
+        return self._range[0]
+    @minimum.setter
+    def minimum(self, value: float):
+        self._range[0] = value
+    @property
+    def maximum(self) -> float:
+        return self._range[1]
+    @maximum.setter
+    def maximum(self, value: float):
+        self._range[1] = value
+    @property
+    def value(self) -> float:
+        return self.minimum + self._normalized_value * (self.maximum - self.minimum)
+    @value.setter
+    def value(self, value: float):
+        self.normalized_value = (value - self.minimum) / (self.maximum - self.minimum)
     def on_draw(self, graphics: Graphics):
+        left = self.height / 2            
+        right = self.width - left
+        knob_size = self.height
+        knob_x = self.normalized_value * self.width
+        
         # Draw track
         graphics.fill_color = Color(200, 200, 200)
         graphics.stroke_color = Color(100, 100, 100)
         graphics.rect_mode = 'corner'
-        graphics.rectangle(0, self.height / 2 - self.height / 8, self.width, self.height / 4)
+        graphics.rectangle(0, self.height / 2 - self.height / 4, self.width, self.height / 2)   
+                
+        graphics.stroke_color = Color(0, 0, 0)        
+        for i in range(self._steps - 2): # Will not draw when steps is 0, excludes firat and last    
+            x = left + (i + 1) * (right - left) / (self._steps - 1)        
+            graphics.line(x, self.height * 0.425, x, self.height * 0.575)
 
         # Draw knob
-        knob_radius = self.height / 2
-        knob_x = self.normalized_value * self.width
-        graphics.fill_color = Color(80, 120, 220) if self.dragging else Color(120, 160, 240)
-        graphics.ellipse_mode = 'center'
-        graphics.ellipse(knob_x, self.height / 2, knob_radius, knob_radius)
+        graphics.fill_color = Color(80, 120, 220, 255) if self.dragging else Color(120, 160, 240, 255)
+        graphics.stroke_color = Color(100, 100, 100)
+        graphics.rect_mode = 'center'
+        graphics.rectangle(knob_x, self.height / 2, knob_size, knob_size)
 
     def on_mouse_event(self, event: MouseEvent):
-        if event.is_pressed_event and event.is_left_event and self.is_in_local_bounds(event.point):
-            self.dragging = True
-            self._update_value_from_point(event.point)
-        elif event.is_released_event and event.is_left_event:
-            self.dragging = False
-        elif self.dragging and (event.is_move_event or event.is_pressed_event):
-            self._update_value_from_point(event.point)
-
-    def _update_value_from_point(self, point: Vector2D):
-        nv = max(0.0, min(1.0, point.x / max(1, self.width)))
-        self.normalized_value = nv
-        self.on_value_changed(self.value)
-
-    def on_value_changed(self, value: float):
+        if event.any_button_down:
+            self.normalized_value = (event.point.x - self.height / 2) / (self.width - self.height)
+    def on_value_changed(self, old: float):
         pass
-
-if __name__ == "__main__":
-    class MySlider(Slider):
-        def on_value_changed(self, value: float):
-            print(f"Slider value: {value}")
-
-    class App(YuiRoot):
-        def __init__(self):
-            super().__init__(width=400, height=200, name="Slider Demo")
-            self.auto_background = Color(0, 0, 0, 255)
-        def on_draw(self, graphics: Graphics):
-            self.slider = MySlider(self)
-            self.slider.width = 350
-            self.slider.height = 40
-            self.slider.x = 10
-            self.slider.y = 0
-
-    App().init()
